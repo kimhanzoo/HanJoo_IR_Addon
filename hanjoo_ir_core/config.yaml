@@ -1,6 +1,6 @@
 name: HanJoo IR Core
-description: Protected local IR protocol engine for HanJoo IR Manager
-version: "0.5.0"
+description: Local IR protocol engine with broad remote recognition for HanJoo IR Manager
+version: "0.5.1"
 slug: hanjoo_ir_core
 init: false
 startup: application
