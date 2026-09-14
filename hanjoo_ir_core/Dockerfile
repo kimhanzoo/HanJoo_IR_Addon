@@ -44,6 +44,7 @@ RUN git clone --depth 1 https://github.com/crankyoldgit/IRremoteESP8266.git /tmp
  && apk del git g++ make \
  && npm cache clean --force
 
+COPY core_payload/ /opt/hanjoo/payload/
 COPY core_runtime.protected.cjs /opt/hanjoo/core_runtime.cjs
 COPY probe_server.cjs /opt/hanjoo/probe_server.cjs
 COPY run.sh /run.sh
