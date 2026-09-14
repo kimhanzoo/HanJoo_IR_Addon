@@ -39,6 +39,7 @@ RUN git clone --depth 1 https://github.com/crankyoldgit/IRremoteESP8266.git /tmp
       /tmp/irremoteesp8266/src/ir_*.cpp \
       -o /opt/hanjoo/ir8266_probe \
  && strip /opt/hanjoo/ir8266_probe \
+ && cd / \
  && rm -rf /tmp/irremoteesp8266 /tmp/hanjoo-ir8266-probe.cpp \
  && apk del git g++ make \
  && npm cache clean --force
