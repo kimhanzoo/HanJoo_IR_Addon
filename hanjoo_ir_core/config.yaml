@@ -1,0 +1,12 @@
+name: HanJoo IR Core
+description: Protected local IR protocol engine for HanJoo IR Manager
+version: "0.5.0"
+slug: hanjoo_ir_core
+init: false
+startup: application
+boot: auto
+arch:
+  - amd64
+  - aarch64
+options: {}
+schema: false
