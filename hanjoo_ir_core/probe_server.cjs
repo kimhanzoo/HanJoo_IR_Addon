@@ -14,6 +14,7 @@ const requireFromRuntime = createRequire("/opt/hanjoo/package.json");
 const ir = requireFromRuntime("irtxrx");
 
 const PORT = Number(process.argv[2] || 8101);
+const VERSION = process.env.HANJOO_VERSION || "0.6.3";
 const MAX_TIMINGS = 20000;
 
 function safe(value) {
@@ -104,7 +105,6 @@ function probe(timings) {
   };
 }
 
-
 function probeIrremoteEsp8266(timings) {
   const t = normalizeTimings(timings);
   if (t.length < 4) return { ok:true, coverage:128, match:null };
@@ -145,6 +145,7 @@ const server = http.createServer((req, res) => {
     return send(res, 200, {
       ok: true,
       service: "hanjoo-public-codec-probe",
+      version: VERSION,
       irtxrx_protocols: (ir.REGISTERED_PROTOCOLS || []).length,
       irremoteesp8266_protocols: 128,
       recognition_coverage: 128,
@@ -155,12 +156,19 @@ const server = http.createServer((req, res) => {
   if (!isProbe) return send(res, 404, { error:"not_found" });
 
   let raw = "";
+  let tooLarge = false;
   req.setEncoding("utf8");
   req.on("data", chunk => {
+    if (tooLarge) return;
     raw += chunk;
-    if (raw.length > 4_000_000) req.destroy();
+    if (raw.length > 4_000_000) {
+      tooLarge = true;
+      send(res, 413, { error: "body_too_large" });
+      req.destroy();
+    }
   });
   req.on("end", () => {
+    if (tooLarge) return;
     try {
       const payload = JSON.parse(raw || "{}");
       const timings = payload.timings || [];
