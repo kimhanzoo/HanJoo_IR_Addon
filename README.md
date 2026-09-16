@@ -1,21 +1,11 @@
-# HanJoo IR Add-on Repository
+# HanJoo IR — One-install repository
 
-Repository for **HanJoo IR Core**, the local protocol engine used by HanJoo IR Manager.
+Install **HanJoo IR Core** from this add-on repository. The add-on automatically installs/updates the thin Home Assistant integration into `/config/custom_components/hanjoo_ir`.
 
-Main capabilities:
-- local IR protocol generation and decoding;
-- automatic analysis of signals captured from an existing physical remote;
-- about **90 structured protocol entries** plus up to **128 IRremoteESP8266 recognition protocol IDs** (overlapping sets);
-- dynamic HVAC control for supported stateful protocols;
-- `amd64` and `aarch64` support.
+After the first install or an integration update, restart Home Assistant Core once. The integration bootstraps its single config entry automatically; HACS is not required for the normal installation path.
 
-Common families include Daikin, Panasonic, LG, Mitsubishi, Samsung, Gree, Midea, Haier, Toshiba, Fujitsu, Hitachi, Carrier, Sharp, Sanyo, Whirlpool, TCL, Kelvinator, Electra and generic NEC/RC5/RC6/Sony/JVC-style remotes.
+The separate HACS repository remains supported as a manual/developer installation path. If you want HACS to own the integration, disable `install_manager` in the add-on options.
 
-## Install
-
-1. Home Assistant → **Settings → Add-ons → Add-on Store**.
-2. Open **⋮ → Repositories**.
-3. Add `https://github.com/kimhanzoo/HanJoo_IR_Addon`
-4. Install **HanJoo IR Core** and start it.
-5. Install HanJoo IR Manager from HACS:
-   `https://github.com/kimhanzoo/hanjoo-ir-manager`
+Architecture in v0.6.0:
+- Home Assistant Integration: thin UI/entities/HA bridge and online-library I/O.
+- HanJoo IR Core add-on: protocol engines plus protected Brain service for raw-family classification, candidate/profile scoring, and safe recommendation policy.
