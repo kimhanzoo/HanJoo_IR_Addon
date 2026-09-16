@@ -1,5 +1,6 @@
 FROM alpine:3.22
 
+# Build/install the pinned irtxrx runtime used by the protected Core gateway.
 RUN apk add --no-cache nodejs npm ca-certificates git g++ make binutils \
  && rm -rf /tmp/irtxrx-src /opt/hanjoo \
  && git clone --depth 1 --branch v0.21.0 https://github.com/0xPiyush/irtxrx.git /tmp/irtxrx-src \
@@ -16,6 +17,8 @@ RUN apk add --no-cache nodejs npm ca-certificates git g++ make binutils \
  && npm install --prefix /opt/hanjoo --omit=dev --ignore-scripts --no-audit --no-fund /tmp/hanjoo-pack/irtxrx-0.21.0.tgz \
  && rm -rf /tmp/irtxrx-src /tmp/hanjoo-pack
 
+# Build a stripped native IRremoteESP8266 probe used as a second independent
+# recognition engine. The exact upstream commit is pinned for reproducibility.
 COPY ir8266_probe.cpp /tmp/hanjoo-ir8266-probe.cpp
 RUN git clone --depth 1 https://github.com/crankyoldgit/IRremoteESP8266.git /tmp/irremoteesp8266 \
  && cd /tmp/irremoteesp8266 \
@@ -31,9 +34,9 @@ RUN git clone --depth 1 https://github.com/crankyoldgit/IRremoteESP8266.git /tmp
  && strip /opt/hanjoo/ir8266_probe \
  && rm -rf /tmp/irremoteesp8266 /tmp/hanjoo-ir8266-probe.cpp
 
-# Brain payload remains outside the public HA integration. For v0.6.2 run it
-# directly with Node instead of SEA: the previous SEA packaging could start a
-# process that exited immediately on some HAOS/Alpine Node 22 builds.
+# Stable Brain packaging: reconstruct it only while building the image and run
+# it with the normal CommonJS Node runtime. This avoids the Node SEA module
+# loader incompatibility that could create a process and then immediately exit.
 COPY brain_payload/ /tmp/brain_payload/
 RUN cat /tmp/brain_payload/part-*.txt | base64 -d > /opt/hanjoo/brain_runtime.cjs \
  && node --check /opt/hanjoo/brain_runtime.cjs \
@@ -45,7 +48,11 @@ COPY core_runtime.protected.cjs /opt/hanjoo/core_runtime.cjs
 COPY probe_server.cjs /opt/hanjoo/probe_server.cjs
 COPY integration/ /opt/hanjoo/integration/
 COPY run.sh /run.sh
-RUN chmod 755 /run.sh \
+RUN node --check /opt/hanjoo/core_runtime.cjs \
+ && node --check /opt/hanjoo/probe_server.cjs \
+ && test -f /opt/hanjoo/integration/hanjoo_ir/manifest.json \
+ && ! find /opt/hanjoo/integration -type d -name __pycache__ -print -quit | grep -q . \
+ && chmod 755 /run.sh \
  && apk del git g++ make binutils
 
 ENV NODE_PATH=/opt/hanjoo/node_modules
