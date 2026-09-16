@@ -1,0 +1,112 @@
+name: Validate HanJoo IR add-on
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Shell syntax
+        run: sh -n hanjoo_ir_core/run.sh
+      - name: Reconstruct and validate Brain/Core JS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat hanjoo_ir_core/brain_payload/part-*.txt | base64 -d > /tmp/brain_runtime.cjs
+          node --check /tmp/brain_runtime.cjs
+          node --check hanjoo_ir_core/core_runtime.protected.cjs
+          node --check hanjoo_ir_core/probe_server.cjs
+          python - <<'PY'
+          import base64, gzip
+          from pathlib import Path
+          root = Path('hanjoo_ir_core/core_payload')
+          raw = base64.b64decode(''.join(p.read_text() for p in sorted(root.glob('part-*.txt'))))
+          key = b'HJIR-2026-LOCAL-CORE'
+          dec = bytes(b ^ key[i % len(key)] for i, b in enumerate(raw))
+          Path('/tmp/core_runtime_decoded.cjs').write_bytes(gzip.decompress(dec))
+          PY
+          node --check /tmp/core_runtime_decoded.cjs
+      - name: Validate bundled Manager
+        run: |
+          python -m compileall -q hanjoo_ir_core/integration/hanjoo_ir
+          node --check hanjoo_ir_core/integration/hanjoo_ir/frontend/hanjoo-ir-panel.js
+          python - <<'PY'
+          import json, pathlib, re, sys
+          root = pathlib.Path('hanjoo_ir_core')
+          addon = re.search(r'^version:\s*["\']?([^"\'\n]+)', (root/'config.yaml').read_text(), re.M).group(1).strip()
+          manifest = json.loads((root/'integration/hanjoo_ir/manifest.json').read_text())['version']
+          const = re.search(r'^VERSION\s*=\s*["\']([^"\']+)', (root/'integration/hanjoo_ir/const.py').read_text(), re.M).group(1)
+          run = re.search(r'^VERSION=["\']([^"\']+)', (root/'run.sh').read_text(), re.M).group(1)
+          assert len({addon, manifest, const, run}) == 1, (addon, manifest, const, run)
+          bad = list((root/'integration').rglob('__pycache__')) + list((root/'integration').rglob('*.pyc'))
+          assert not bad, f'compiled Python artifacts must not be shipped: {bad}'
+          assert not (root/'integration/hanjoo_ir/fusion_matcher.py').exists()
+          assert not (root/'integration/hanjoo_ir/raw_protocol_classifier.py').exists()
+          print('version', addon)
+          PY
+      - name: Brain regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat hanjoo_ir_core/brain_payload/part-*.txt | base64 -d > /tmp/brain_runtime.cjs
+          HANJOO_VERSION=ci node /tmp/brain_runtime.cjs 18102 >/tmp/brain.log 2>&1 &
+          pid=$!
+          trap 'kill $pid 2>/dev/null || true' EXIT
+          for i in {1..30}; do curl -fsS http://127.0.0.1:18102/health >/dev/null && break; sleep .1; done
+          curl -fsS http://127.0.0.1:18102/health | grep -q '"ok":true'
+          python - <<'PY'
+          import json, urllib.request
+          vals=[8221,-3969]
+          for i in range(28): vals += [562, -(1468 if i%3==0 else 438)]
+          req=urllib.request.Request('http://127.0.0.1:18102/v1/classify', data=json.dumps({'timings':vals}).encode(), headers={'content-type':'application/json'})
+          d=json.loads(urllib.request.urlopen(req).read())
+          assert d['matches'] and d['matches'][0]['protocol']=='LG/LG2', d
+          print('classifier regression OK')
+          PY
+
+  docker-amd64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build amd64 image
+        run: docker buildx build --platform linux/amd64 --load -t hanjoo-ir-core:test hanjoo_ir_core
+      - name: Runtime smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$PWD/.ha-config"
+          : > "$PWD/.ha-config/configuration.yaml"
+          docker run -d --name hanjoo-test -v "$PWD/.ha-config:/config" -p 18099:8099 -p 18101:8101 -p 18102:8102 hanjoo-ir-core:test
+          trap 'docker logs hanjoo-test || true; docker rm -f hanjoo-test >/dev/null 2>&1 || true' EXIT
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:18099/health >/dev/null && curl -fsS http://127.0.0.1:18101/health >/dev/null && curl -fsS http://127.0.0.1:18102/health >/dev/null; then break; fi
+            sleep .5
+          done
+          curl -fsS http://127.0.0.1:18099/health | grep -q '"ok":true'
+          curl -fsS http://127.0.0.1:18101/health | grep -q '"ok":true'
+          curl -fsS http://127.0.0.1:18102/health | grep -q '"ok":true'
+          test -f "$PWD/.ha-config/custom_components/hanjoo_ir/manifest.json"
+          grep -q '^hanjoo_ir:' "$PWD/.ha-config/configuration.yaml"
+          docker logs hanjoo-test | grep -q 'All services healthy'
+
+  docker-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build arm64 image
+        run: docker buildx build --platform linux/arm64 -t hanjoo-ir-core:test-arm64 hanjoo_ir_core
