@@ -1,11 +1,9 @@
 #!/bin/sh
 set -eu
-VERSION="0.6.1"
+VERSION="0.6.2"
 SOURCE="/opt/hanjoo/integration/hanjoo_ir"
 OPTIONS="/data/options.json"
 
-# Home Assistant add-ons normally expose the config mapping at /config.
-# Keep /homeassistant as a compatibility fallback for newer/alternate layouts.
 if [ -d /config ]; then
   CONFIG_ROOT="/config"
 elif [ -d /homeassistant ]; then
@@ -100,6 +98,27 @@ install_manager() {
   echo "[HanJoo IR] Restart Home Assistant Core once to load the new Manager version."
 }
 
+wait_http() {
+  name="$1"; url="$2"; pid="$3"; logfile="$4"
+  i=0
+  while [ "$i" -lt 20 ]; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "[HanJoo IR] ERROR: $name exited during startup."
+      [ -f "$logfile" ] && { echo "----- $name log -----"; cat "$logfile"; echo "---------------------"; }
+      return 1
+    fi
+    if node -e 'const http=require("node:http");const u=process.argv[1];const r=http.get(u,x=>{process.exit(x.statusCode>=200&&x.statusCode<500?0:1)});r.on("error",()=>process.exit(1));r.setTimeout(500,()=>{r.destroy();process.exit(1)})' "$url" >/dev/null 2>&1; then
+      echo "[HanJoo IR] $name healthy: $url"
+      return 0
+    fi
+    i=$((i+1))
+    sleep 0.25
+  done
+  echo "[HanJoo IR] ERROR: $name did not become healthy."
+  [ -f "$logfile" ] && { echo "----- $name log -----"; cat "$logfile"; echo "---------------------"; }
+  return 1
+}
+
 cleanup(){
   kill "${probe_pid:-}" "${brain_pid:-}" 2>/dev/null || true
 }
@@ -113,10 +132,13 @@ install_manager
 
 node /opt/hanjoo/probe_server.cjs 8101 >/tmp/hanjoo-ir-probe.log 2>&1 &
 probe_pid=$!
-/opt/hanjoo/hanjoo_brain 8102 >/tmp/hanjoo-ir-brain.log 2>&1 &
+node /opt/hanjoo/brain_runtime.cjs 8102 >/tmp/hanjoo-ir-brain.log 2>&1 &
 brain_pid=$!
 
-echo "[HanJoo IR] Protocol sidecar started on :8101 (pid=$probe_pid)"
-echo "[HanJoo IR] Brain service started on :8102 (pid=$brain_pid)"
+echo "[HanJoo IR] Protocol sidecar process started on :8101 (pid=$probe_pid)"
+echo "[HanJoo IR] Brain process started on :8102 (pid=$brain_pid)"
+wait_http "Protocol sidecar" "http://127.0.0.1:8101/health" "$probe_pid" /tmp/hanjoo-ir-probe.log || true
+wait_http "Brain service" "http://127.0.0.1:8102/health" "$brain_pid" /tmp/hanjoo-ir-brain.log || true
+
 echo "[HanJoo IR] Core gateway starting on :8099"
 exec node /opt/hanjoo/core_runtime.cjs 8099
