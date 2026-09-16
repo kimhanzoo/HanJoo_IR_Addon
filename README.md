@@ -6,6 +6,10 @@ After the first install or an integration update, restart Home Assistant Core on
 
 The separate HACS repository remains supported as a manual/developer installation path. If you want HACS to own the integration, disable `install_manager` in the add-on options.
 
-Architecture in v0.6.0:
+Architecture in v0.6.1:
 - Home Assistant Integration: thin UI/entities/HA bridge and online-library I/O.
 - HanJoo IR Core add-on: protocol engines plus protected Brain service for raw-family classification, candidate/profile scoring, and safe recommendation policy.
+
+
+## Update model
+Bump `hanjoo_ir_core/config.yaml` version for every release. Home Assistant then offers an Add-on Update; starting the updated add-on installs/updates the bundled Manager automatically.

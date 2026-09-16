@@ -5,7 +5,7 @@ SOURCE="/opt/hanjoo/integration/hanjoo_ir"
 OPTIONS="/data/options.json"
 
 # Home Assistant add-ons normally expose the config mapping at /config.
-# Keep /homeassistant as a compatibility fallback for alternate layouts.
+# Keep /homeassistant as a compatibility fallback for newer/alternate layouts.
 if [ -d /config ]; then
   CONFIG_ROOT="/config"
 elif [ -d /homeassistant ]; then
