@@ -31,19 +31,14 @@ RUN git clone --depth 1 https://github.com/crankyoldgit/IRremoteESP8266.git /tmp
  && strip /opt/hanjoo/ir8266_probe \
  && rm -rf /tmp/irremoteesp8266 /tmp/hanjoo-ir8266-probe.cpp
 
-# Proprietary recognition/fusion logic is reconstructed only during image build,
-# then packed into a Node Single Executable Application. Plain JS is removed.
+# Brain payload remains outside the public HA integration. For v0.6.2 run it
+# directly with Node instead of SEA: the previous SEA packaging could start a
+# process that exited immediately on some HAOS/Alpine Node 22 builds.
 COPY brain_payload/ /tmp/brain_payload/
-RUN cat /tmp/brain_payload/part-*.txt | base64 -d > /tmp/brain_runtime.js \
- && printf '{"main":"/tmp/brain_runtime.js","output":"/tmp/brain.blob","disableExperimentalSEAWarning":true}' > /tmp/sea-config.json \
- && node --experimental-sea-config /tmp/sea-config.json \
- && npm install -g --ignore-scripts --no-audit --no-fund postject@1.0.0-alpha.6 \
- && cp "$(command -v node)" /opt/hanjoo/hanjoo_brain \
- && postject /opt/hanjoo/hanjoo_brain NODE_SEA_BLOB /tmp/brain.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 \
- && chmod 755 /opt/hanjoo/hanjoo_brain \
- && rm -rf /tmp/brain_payload /tmp/brain_runtime.js /tmp/brain.blob /tmp/sea-config.json \
- && npm uninstall -g postject \
- && npm cache clean --force
+RUN cat /tmp/brain_payload/part-*.txt | base64 -d > /opt/hanjoo/brain_runtime.cjs \
+ && node --check /opt/hanjoo/brain_runtime.cjs \
+ && chmod 600 /opt/hanjoo/brain_runtime.cjs \
+ && rm -rf /tmp/brain_payload
 
 COPY core_payload/ /opt/hanjoo/payload/
 COPY core_runtime.protected.cjs /opt/hanjoo/core_runtime.cjs
