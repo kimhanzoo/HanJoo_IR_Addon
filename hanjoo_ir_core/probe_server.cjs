@@ -14,6 +14,7 @@ const requireFromRuntime = createRequire("/opt/hanjoo/package.json");
 const ir = requireFromRuntime("irtxrx");
 
 const PORT = Number(process.argv[2] || 8101);
+const VERSION = process.env.HANJOO_VERSION || "0.6.3";
 const MAX_TIMINGS = 20000;
 
 function safe(value) {
@@ -145,6 +146,7 @@ const server = http.createServer((req, res) => {
     return send(res, 200, {
       ok: true,
       service: "hanjoo-public-codec-probe",
+      version: VERSION,
       irtxrx_protocols: (ir.REGISTERED_PROTOCOLS || []).length,
       irremoteesp8266_protocols: 128,
       recognition_coverage: 128,

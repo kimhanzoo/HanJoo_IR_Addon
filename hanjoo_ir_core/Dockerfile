@@ -31,13 +31,14 @@ RUN git clone --depth 1 https://github.com/crankyoldgit/IRremoteESP8266.git /tmp
  && strip /opt/hanjoo/ir8266_probe \
  && rm -rf /tmp/irremoteesp8266 /tmp/hanjoo-ir8266-probe.cpp
 
-# Brain payload remains outside the public HA integration. For v0.6.2 run it
-# directly with Node instead of SEA: the previous SEA packaging could start a
-# process that exited immediately on some HAOS/Alpine Node 22 builds.
+# Protected recognition/fusion logic is reconstructed during image build.
+# v0.6.3 deliberately runs it as CommonJS under Node instead of SEA because
+# Node SEA changed CommonJS module semantics on HAOS/Alpine and caused the
+# Brain process to exit with `require is not defined`.
 COPY brain_payload/ /tmp/brain_payload/
 RUN cat /tmp/brain_payload/part-*.txt | base64 -d > /opt/hanjoo/brain_runtime.cjs \
  && node --check /opt/hanjoo/brain_runtime.cjs \
- && chmod 600 /opt/hanjoo/brain_runtime.cjs \
+ && chmod 500 /opt/hanjoo/brain_runtime.cjs \
  && rm -rf /tmp/brain_payload
 
 COPY core_payload/ /opt/hanjoo/payload/
@@ -45,9 +46,15 @@ COPY core_runtime.protected.cjs /opt/hanjoo/core_runtime.cjs
 COPY probe_server.cjs /opt/hanjoo/probe_server.cjs
 COPY integration/ /opt/hanjoo/integration/
 COPY run.sh /run.sh
-RUN chmod 755 /run.sh \
+RUN find /opt/hanjoo/integration -type d -name __pycache__ -prune -exec rm -rf {} \; \
+ && find /opt/hanjoo/integration -type f -name '*.pyc' -delete \
+ && node --check /opt/hanjoo/core_runtime.cjs \
+ && node --check /opt/hanjoo/probe_server.cjs \
+ && node --check /opt/hanjoo/brain_runtime.cjs \
+ && chmod 755 /run.sh \
  && apk del git g++ make binutils
 
-ENV NODE_PATH=/opt/hanjoo/node_modules
+ENV NODE_PATH=/opt/hanjoo/node_modules \
+    HANJOO_VERSION=0.6.3
 EXPOSE 8099 8101 8102
 CMD ["/run.sh"]

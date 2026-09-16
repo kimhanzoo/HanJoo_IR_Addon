@@ -1,4 +1,4 @@
-# HanJoo IR Core 0.6.0
+# HanJoo IR Core 0.6.3
 
 ## One-install setup
 1. Add this repository to Home Assistant Add-on Store.
