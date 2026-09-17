@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-VERSION="0.6.5"
+VERSION="0.6.6"
 export HANJOO_VERSION="$VERSION"
 SOURCE="/opt/hanjoo/integration/hanjoo_ir"
 OPTIONS="/data/options.json"
@@ -68,9 +68,6 @@ install_manager() {
     if [ "$managed" = true ]; then
       echo "[HanJoo IR] Manager $dst_ver already installed and managed by this add-on."
     else
-      # install_manager=true means the add-on is the selected owner. Adopt the
-      # matching copy without rewriting it; users preferring HACS should disable
-      # install_manager in add-on options.
       printf '%s\n' "$VERSION" > "$MARKER"
       echo "[HanJoo IR] Existing matching Manager $dst_ver adopted by this add-on."
     fi
@@ -161,8 +158,6 @@ wait_http "Brain service" "http://127.0.0.1:8102/health" "$brain_pid" /tmp/hanjo
 wait_http "Core gateway" "http://127.0.0.1:8099/health" "$core_pid" /tmp/hanjoo-ir-core.log || exit 1
 echo "[HanJoo IR] All services healthy (Core :8099, Protocol :8101, Brain :8102)."
 
-# Keep PID 1 as the supervisor for all three children. If any service exits or
-# stops answering health checks, fail the add-on so Home Assistant can restart it.
 while :; do
   sleep 10
   for item in "Protocol sidecar|$probe_pid|http://127.0.0.1:8101/health|/tmp/hanjoo-ir-probe.log" \
