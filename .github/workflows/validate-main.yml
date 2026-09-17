@@ -1,0 +1,81 @@
+name: Validate HanJoo IR main
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-smoke-amd64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate metadata versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'version: "0.6.9"' hanjoo_ir_core/config.yaml
+          grep -q 'VERSION="0.6.9"' hanjoo_ir_core/run.sh
+          grep -q 'HANJOO_VERSION=0.6.9' hanjoo_ir_core/Dockerfile
+
+      - name: Syntax check shell and JavaScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh -n hanjoo_ir_core/run.sh
+          node --check hanjoo_ir_core/probe_server.cjs
+          node --check hanjoo_ir_core/core_runtime.protected.cjs
+
+      - name: Build add-on image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull -t hanjoo-ir:test hanjoo_ir_core
+
+      - name: Start image
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/hanjoo-config/custom_components
+          printf '# CI bootstrap\n' >/tmp/hanjoo-config/configuration.yaml
+          docker run -d --rm --name hanjoo-ir-test \
+            -v /tmp/hanjoo-config:/config \
+            -p 18099:8099 -p 18101:8101 -p 18102:8102 \
+            hanjoo-ir:test
+
+      - name: Wait for all services
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker logs hanjoo-ir-test || true' ERR
+          for port in 18099 18101 18102; do
+            ok=0
+            for i in $(seq 1 60); do
+              if curl -fsS "http://127.0.0.1:${port}/health" | grep -q '"ok":true'; then ok=1; break; fi
+              sleep 1
+            done
+            test "$ok" = 1
+          done
+
+      - name: Verify native AC bridge flags
+        shell: bash
+        run: |
+          set -euo pipefail
+          health="$(curl -fsS http://127.0.0.1:18101/health)"
+          echo "$health"
+          echo "$health" | grep -q '"native_brain_bridge":true'
+          echo "$health" | grep -q '"tasmota_style_ac":true'
+          echo "$health" | grep -q '"hvac_state_bridge":true'
+
+      - name: Verify Manager auto-install/bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/hanjoo-config/custom_components/hanjoo_ir/manifest.json
+          grep -q '^hanjoo_ir:' /tmp/hanjoo-config/configuration.yaml
+
+      - name: Show logs
+        if: always()
+        run: docker logs hanjoo-ir-test || true
