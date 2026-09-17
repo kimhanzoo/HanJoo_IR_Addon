@@ -19,12 +19,10 @@ from .const import (
     PANEL_TITLE,
     PANEL_URL,
 )
+from . import recognition_bridge as _recognition_bridge  # noqa: F401
 from .manager import HanJooIRManager
 from .online_library import OnlineLibrary
 from .websocket_api import async_register_websocket_commands
-# Installs the thin translation layer that feeds repeated IRremoteESP8266 A/C
-# evidence into the protected Brain without moving scoring policy into Manager.
-from . import native_bridge as _native_bridge  # noqa: F401,E402
 
 _LOGGER = logging.getLogger(__name__)
 
