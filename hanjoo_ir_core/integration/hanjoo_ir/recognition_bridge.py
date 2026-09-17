@@ -1,12 +1,11 @@
 """Bridge strong native A/C decoder evidence into HanJoo Brain fusion."""
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from .core_client import HanJooCoreClient
 
-_PATCH_FLAG = "_hanjoo_native_ac_bridge_v3"
+_PATCH_FLAG = "_hanjoo_native_ac_bridge_v4"
 _ORIGINAL_FUSE = HanJooCoreClient.fuse_identification
 
 _MODE = {-1: "off", 0: "auto", 1: "cool", 2: "heat", 3: "dry", 4: "fan_only"}
@@ -81,10 +80,18 @@ async def _native_rows(client: HanJooCoreClient, captures: list[dict[str, Any]],
     if not guided_ac or len(captures) < 2:
         return []
 
-    probed = await asyncio.gather(
-        *(client.probe_all(list(c.get("timings") or [])) for c in captures),
-        return_exceptions=True,
-    )
+    # Do NOT probe 3 long A/C captures concurrently. The sidecar intentionally
+    # uses native child decoders and broad public protocol coverage. Parallel
+    # probe-all calls can briefly multiply memory/CPU and previously caused the
+    # sidecar container process to be killed on smaller HA hosts.
+    probed: list[dict[str, Any] | Exception] = []
+    for capture in captures:
+        try:
+            result = await client.probe_all(list(capture.get("timings") or []))
+            probed.append(result if isinstance(result, dict) else {})
+        except Exception as err:
+            probed.append(err)
+
     groups: dict[str, dict[str, Any]] = {}
     for index, (capture, result) in enumerate(zip(captures, probed)):
         if isinstance(result, Exception) or not isinstance(result, dict):
@@ -148,7 +155,7 @@ async def _native_rows(client: HanJooCoreClient, captures: list[dict[str, Any]],
             "group_id": f"protocol:{key}", "confidence": confidence,
             "matched_captures": matched, "capture_count": total,
             "semantic_ratio": round(semantic, 4), "distinct_matches": distinct,
-            "decoded_states": states[:4], "evidence_sources": sorted(row["sources"]),
+            "decoded_states": states[:3], "evidence_sources": sorted(row["sources"]),
             "evidence": "native_ac_decode", "_core_recommended": safe,
         })
     out.sort(key=lambda x: (-int(bool(x.get("_core_recommended"))), -int(x.get("confidence") or 0), -int(x.get("matched_captures") or 0)))
@@ -168,6 +175,23 @@ def _merge(existing: list[dict[str, Any]], native: list[dict[str, Any]]) -> list
         if old is None or int(row.get("confidence") or 0) > int(old.get("confidence") or 0):
             rows[key] = row
     return list(rows.values())
+
+
+def _base_result(native: list[dict[str, Any]], *, brain_unavailable: bool = False) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "recommended": False,
+        "recommended_id": None,
+        "equivalent_candidate_ids": [],
+        "candidates": list(native),
+        "brand_hints": [],
+        "native_ac_bridge_candidates": len(native),
+    }
+    if brain_unavailable:
+        result["brain_degraded"] = True
+        result["message_en"] = "Brain service restarted during analysis; native protocol evidence is shown without automatic recommendation."
+        result["message_vi"] = "Brain đã khởi động lại trong lúc phân tích; HanJoo vẫn hiển thị bằng chứng protocol native nhưng không tự khuyến nghị."
+        result["message"] = result["message_en"]
+    return result
 
 
 def _postprocess(result: dict[str, Any], native: list[dict[str, Any]], captures: list[dict[str, Any]], kind_hint: str) -> dict[str, Any]:
@@ -214,10 +238,18 @@ async def _fuse_with_native_ac(self: HanJooCoreClient, captures: list[dict[str, 
         native = await _native_rows(self, captures, hint)
     except Exception:
         native = []
-    result = await _ORIGINAL_FUSE(
-        self, captures, kind_hint=kind_hint,
-        candidates=_merge(list(candidates or []), native), profiles=profiles,
-    )
+
+    try:
+        result = await _ORIGINAL_FUSE(
+            self, captures, kind_hint=kind_hint,
+            candidates=_merge(list(candidates or []), native), profiles=profiles,
+        )
+    except Exception:
+        # A transient add-on/Brain restart must not surface as a fatal UI error.
+        # Keep the recognition session intact and return any strong local decoder
+        # evidence already collected. The next Analyze press can use Brain again.
+        return _postprocess(_base_result(native, brain_unavailable=True), native, captures, hint)
+
     return _postprocess(result if isinstance(result, dict) else {}, native, captures, hint)
 
 
