@@ -21,7 +21,7 @@ RUN git clone --depth 1 https://github.com/crankyoldgit/IRremoteESP8266.git /tmp
  && cd /tmp/irremoteesp8266 \
  && git fetch --depth 1 origin 1e2f0f3ef0a93cbf2a8ddb2e95130f8f4c584b3f \
  && git checkout 1e2f0f3ef0a93cbf2a8ddb2e95130f8f4c584b3f \
- && g++ -O2 -std=gnu++11 -DUNIT_TEST -D_IR_LOCALE_=en-AU \
+ && g++ -O2 -std=gnu++11 -DUNIT_TEST -D_IR_LOCALE_=en-AU -DDECODE_HITACHI_AC1=false \
       -I/tmp/irremoteesp8266/src -I/tmp/irremoteesp8266/test \
       /tmp/hanjoo-ir8266-probe.cpp \
       /tmp/irremoteesp8266/src/IRrecv.cpp /tmp/irremoteesp8266/src/IRsend.cpp \
@@ -52,6 +52,6 @@ RUN find /opt/hanjoo/integration -type d -name __pycache__ -prune -exec rm -rf {
  && apk del git g++ make binutils
 
 ENV NODE_PATH=/opt/hanjoo/node_modules \
-    HANJOO_VERSION=0.6.9
+    HANJOO_VERSION=0.6.10
 EXPOSE 8099 8101 8102
 CMD ["/run.sh"]
