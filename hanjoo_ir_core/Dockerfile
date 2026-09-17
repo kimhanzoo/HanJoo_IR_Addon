@@ -32,7 +32,7 @@ RUN git clone --depth 1 https://github.com/crankyoldgit/IRremoteESP8266.git /tmp
  && rm -rf /tmp/irremoteesp8266 /tmp/hanjoo-ir8266-probe.cpp
 
 # Protected recognition/fusion logic is reconstructed during image build.
-# v0.6.3 deliberately runs it as CommonJS under Node instead of SEA because
+# v0.6.4 deliberately runs it as CommonJS under Node instead of SEA because
 # Node SEA changed CommonJS module semantics on HAOS/Alpine and caused the
 # Brain process to exit with `require is not defined`.
 COPY brain_payload/ /tmp/brain_payload/
@@ -55,6 +55,6 @@ RUN find /opt/hanjoo/integration -type d -name __pycache__ -prune -exec rm -rf {
  && apk del git g++ make binutils
 
 ENV NODE_PATH=/opt/hanjoo/node_modules \
-    HANJOO_VERSION=0.6.3
+    HANJOO_VERSION=0.6.4
 EXPOSE 8099 8101 8102
 CMD ["/run.sh"]
