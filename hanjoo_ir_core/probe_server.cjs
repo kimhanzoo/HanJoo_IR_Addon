@@ -7,7 +7,7 @@ const requireFromRuntime = createRequire("/opt/hanjoo/package.json");
 const ir = requireFromRuntime("irtxrx");
 
 const PORT = Number(process.argv[2] || 8101);
-const VERSION = process.env.HANJOO_VERSION || "0.6.7";
+const VERSION = process.env.HANJOO_VERSION || "0.6.9";
 const MAX_TIMINGS = 20000;
 const MAX_VARIANTS = 24;
 const FRAME_GAP_US = 6500;
@@ -54,7 +54,14 @@ function buildTimingVariants(values) {
     seen.add(key);
     out.push({ label, timings: t, ...meta });
   }
+
+  // Primary path: keep the entire physical press intact, matching the strategy
+  // used by IRrecvDumpV2/Tasmota for stateful A/C remotes.
   add("full", abs, { full:true });
+
+  // Fallback path for existing bridges still configured with short idle time.
+  // Those captures may already have lost the original 20-50 ms inter-packet gap,
+  // but section probing is still useful as a compatibility fallback.
   const gaps = [];
   for (let i = 1; i < signed.length - 1; i++) {
     const isSpace = signed[i] < 0 || (i % 2 === 1);
@@ -77,14 +84,16 @@ function buildTimingVariants(values) {
       add(`frames-${i+1}-${j+1}`, abs.slice(starts[i], ends[j]), { frame_start:i, frame_end:j });
     }
   }
-  for (const offset of [2,4,6,8,10,12]) if (abs.length - offset >= MIN_VARIANT_TIMINGS) add(`trim-${offset}`, abs.slice(offset), { trim_offset:offset });
+  for (const offset of [2,4,6,8,10,12]) {
+    if (abs.length - offset >= MIN_VARIANT_TIMINGS) add(`trim-${offset}`, abs.slice(offset), { trim_offset:offset });
+  }
   return { variants:out, detected_frames:frameCount || 1, gap_count:gaps.length };
 }
 
 function richness(canonical, state) {
   const src = canonical && typeof canonical === "object" ? canonical : state;
   if (!src || typeof src !== "object") return 0;
-  return ["power","mode","temp","temperature","fan","fanSpeed","swing","swingV","swingH"]
+  return ["power","mode","temp","temperature","degrees","fan","fanSpeed","fanspeed","swing","swingV","swingH","swingv","swingh"]
     .reduce((n,k)=>n + (src[k] !== undefined && src[k] !== null ? 1 : 0), 0);
 }
 
@@ -158,37 +167,54 @@ function aggregateNative(info) {
     const q=Number(m.ac_state)*1000+Number(m.bits||0)*2+Number(variant.full)*25+Math.min(variant.timings.length,2000)/100;
     if(!row.best||q>row.best.q)row.best={...m,q,variant:variant.label,timing_count:variant.timings.length};
   }
+
   const candidates=[];
+  const diagnostics=[];
   for(const row of groups.values()){
     if(!row.best)continue; const {q,...best}=row.best;
-    if(!best.ac_state&&!row.full&&row.variants.size<2)continue;
-    candidates.push({...best,variant_hits:row.variants.size,full_capture_match:row.full,evidence_variants:[...row.variants].slice(0,8)});
+    const decorated={...best,variant_hits:row.variants.size,full_capture_match:row.full,evidence_variants:[...row.variants].slice(0,8)};
+    diagnostics.push(decorated);
+
+    // Stateful AC results are always eligible because dedicated decoders validate
+    // structure/checksums. Generic native results from a multi-frame capture are
+    // diagnostic only; this prevents false RC5/RC6 claims on climate remotes.
+    if(!best.ac_state && info.detected_frames>1) continue;
+    if(!best.ac_state && Number(best.tolerance||25)>40) continue;
+    if(!best.ac_state && !row.full && row.variants.size<2) continue;
+    candidates.push(decorated);
   }
   candidates.sort((a,b)=>Number(b.ac_state)-Number(a.ac_state)||Number(b.variant_hits||0)-Number(a.variant_hits||0)||Number(b.full_capture_match)-Number(a.full_capture_match)||Number(b.bits||0)-Number(a.bits||0));
-  return {ok:errors.length<info.variants.length,coverage:128,match:candidates[0]||null,candidates:candidates.slice(0,12),variants_tested:info.variants.length,detected_frames:info.detected_frames,gap_count:info.gap_count,errors:errors.slice(0,4)};
+  diagnostics.sort((a,b)=>Number(b.ac_state)-Number(a.ac_state)||Number(b.variant_hits||0)-Number(a.variant_hits||0)||Number(b.bits||0)-Number(a.bits||0));
+  return {ok:errors.length<info.variants.length,coverage:128,match:candidates[0]||null,candidates:candidates.slice(0,12),diagnostics:diagnostics.slice(0,16),variants_tested:info.variants.length,detected_frames:info.detected_frames,gap_count:info.gap_count,errors:errors.slice(0,4)};
 }
 
 function nativeToBrainMatch(m) {
   if (!m?.protocol) return null;
   const ac = !!m.ac_state;
-  const state = ac ? { state_hex:m.state_hex||null, bits:m.bits||0 } : { value:m.value||null, address:m.address, command:m.command, bits:m.bits||0 };
+  const hvac = ac && m.hvac_state && typeof m.hvac_state === "object" ? safe(m.hvac_state) : null;
+  const state = ac
+    ? { state_hex:m.state_hex||null, bits:m.bits||0, hvac_state:hvac }
+    : { value:m.value||null, address:m.address, command:m.command, bits:m.bits||0 };
   return {
     protocol:m.protocol,
     brand:m.brand||inferBrand(m.protocol),
     type:ac?"ac":"remote",
     structured:ac,
     can_encode:false,
-    richness:ac?8:2,
-    canonical:null,
+    richness:ac?Math.max(8,richness(hvac,hvac)):2,
+    canonical:hvac,
     state,
     source:"irremoteesp8266",
     native_decoder:true,
     ac_state:ac,
     bits:m.bits||0,
     state_hex:m.state_hex||null,
+    hvac_state:hvac,
     value:m.value||null,
     address:m.address,
     command:m.command,
+    tolerance:m.tolerance,
+    decoder_path:m.decoder_path||null,
     variant:m.variant||null,
     variant_hits:m.variant_hits||1,
     full_capture_match:!!m.full_capture_match,
@@ -203,7 +229,7 @@ function mergeForBrain(irtxrx, native) {
   const best=new Map();
   for(const m of all){
     const key=String(m.protocol||"").toLowerCase(); if(!key)continue;
-    const score=Number(m.native_decoder)*1000+Number(m.type==="ac")*500+Number(m.structured)*200+Number(m.variant_hits||0)*10+Number(m.richness||0);
+    const score=Number(m.native_decoder&&m.type==="ac")*2000+Number(m.type==="ac")*700+Number(m.structured)*300+Number(m.native_decoder)*100+Number(m.variant_hits||0)*10+Number(m.richness||0);
     if(!best.has(key)||score>best.get(key).score)best.set(key,{score,m});
   }
   return [...best.values()].sort((a,b)=>b.score-a.score).map(x=>x.m);
@@ -220,7 +246,7 @@ function runPipeline(timings){
 function send(res,status,body){const data=JSON.stringify(body);res.writeHead(status,{"content-type":"application/json; charset=utf-8","content-length":Buffer.byteLength(data)});res.end(data);}
 
 const server=http.createServer((req,res)=>{
-  if(req.method==="GET"&&req.url==="/health")return send(res,200,{ok:true,service:"hanjoo-public-codec-probe",version:VERSION,irtxrx_protocols:(ir.REGISTERED_PROTOCOLS||[]).length,irremoteesp8266_protocols:128,recognition_coverage:128,multi_frame_probe:true,native_brain_bridge:true});
+  if(req.method==="GET"&&req.url==="/health")return send(res,200,{ok:true,service:"hanjoo-public-codec-probe",version:VERSION,irtxrx_protocols:(ir.REGISTERED_PROTOCOLS||[]).length,irremoteesp8266_protocols:128,recognition_coverage:128,multi_frame_probe:true,native_brain_bridge:true,tasmota_style_ac:true,hvac_state_bridge:true});
   const isProbe=req.method==="POST"&&(req.url==="/v1/probe"||req.url==="/v1/probe-all");
   if(!isProbe)return send(res,404,{error:"not_found"});
   let raw="";req.setEncoding("utf8");req.on("data",c=>{raw+=c;if(raw.length>4_000_000)req.destroy();});
@@ -229,9 +255,6 @@ const server=http.createServer((req,res)=>{
       const payload=JSON.parse(raw||"{}");
       const timings=payload.timings||[];
       const p=runPipeline(timings);
-      // IMPORTANT: /v1/probe is the legacy endpoint consumed by Core/Brain.
-      // It now returns the SAME merged evidence as probe-all so native AC
-      // detections cannot be lost before fusion.
       if(req.url==="/v1/probe")return send(res,200,{
         timings:normalizeTimings(timings).length,
         registered_protocols:(ir.REGISTERED_PROTOCOLS||[]).length,
@@ -252,4 +275,4 @@ const server=http.createServer((req,res)=>{
     }catch(err){return send(res,400,{error:String(err?.message||err)});}
   });
 });
-server.listen(PORT,"0.0.0.0",()=>console.log(`[HanJoo IR Core] unified native+public probe listening on 0.0.0.0:${PORT}; protocols=${(ir.REGISTERED_PROTOCOLS||[]).length}`));
+server.listen(PORT,"0.0.0.0",()=>console.log(`[HanJoo IR Core] Tasmota-style native AC + public probe listening on 0.0.0.0:${PORT}; protocols=${(ir.REGISTERED_PROTOCOLS||[]).length}`));
