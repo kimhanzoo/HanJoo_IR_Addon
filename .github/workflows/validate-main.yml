@@ -16,9 +16,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'version: "0.6.9"' hanjoo_ir_core/config.yaml
-          grep -q 'VERSION="0.6.9"' hanjoo_ir_core/run.sh
-          grep -q 'HANJOO_VERSION=0.6.9' hanjoo_ir_core/Dockerfile
+          cfg_ver="$(sed -n 's/^version: "\([^"]*\)"/\1/p' hanjoo_ir_core/config.yaml | head -n1)"
+          run_ver="$(sed -n 's/^VERSION="\([^"]*\)"/\1/p' hanjoo_ir_core/run.sh | head -n1)"
+          docker_ver="$(sed -n 's/^[[:space:]]*HANJOO_VERSION=\([^[:space:]]*\)/\1/p' hanjoo_ir_core/Dockerfile | head -n1)"
+          test -n "$cfg_ver"
+          test "$cfg_ver" = "$run_ver"
+          test "$cfg_ver" = "$docker_ver"
+          echo "Validated HanJoo version $cfg_ver"
 
       - name: Syntax check shell and JavaScript
         shell: bash
