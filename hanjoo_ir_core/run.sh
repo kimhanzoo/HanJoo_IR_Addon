@@ -1,13 +1,10 @@
 #!/bin/sh
 set -eu
-VERSION="0.6.11"
+VERSION="0.6.12"
 export HANJOO_VERSION="$VERSION"
 SOURCE="/opt/hanjoo/integration/hanjoo_ir"
 OPTIONS="/data/options.json"
 
-# Home Assistant Supervisor normally mounts /data for add-ons. Create it as a
-# defensive fallback so local/CI smoke tests and unusual runtimes don't abort
-# under `set -e` before the services are started.
 mkdir -p /data
 
 if [ -d /config ]; then
@@ -19,6 +16,7 @@ else
   echo "[HanJoo IR] Expected /config or /homeassistant. Check add-on map: config:rw"
   exit 1
 fi
+
 TARGET="$CONFIG_ROOT/custom_components/hanjoo_ir"
 MARKER="$TARGET/.hanjoo-managed"
 RESTART_MARKER="/data/manager_restart_required"
@@ -111,13 +109,13 @@ install_manager() {
 
 http_ok() {
   url="$1"
-  node -e 'const http=require("node:http");const u=process.argv[1];const r=http.get(u,x=>{let raw="";x.on("data",c=>raw+=c);x.on("end",()=>{try{const j=JSON.parse(raw||"{}");process.exit(x.statusCode===200&&j.ok===true?0:1)}catch{process.exit(1)}})});r.on("error",()=>process.exit(1));r.setTimeout(700,()=>{r.destroy();process.exit(1)})' "$url" >/dev/null 2>&1
+  node -e 'const http=require("node:http");const u=process.argv[1];const r=http.get(u,x=>{let raw="";x.on("data",c=>raw+=c);x.on("end",()=>{try{const j=JSON.parse(raw||"{}");process.exit(x.statusCode===200&&j.ok===true?0:1)}catch{process.exit(1)}})});r.on("error",()=>process.exit(1));r.setTimeout(1500,()=>{r.destroy();process.exit(1)})' "$url" >/dev/null 2>&1
 }
 
 wait_http() {
   name="$1"; url="$2"; pid="$3"; logfile="$4"
   i=0
-  while [ "$i" -lt 40 ]; do
+  while [ "$i" -lt 60 ]; do
     if ! kill -0 "$pid" 2>/dev/null; then
       echo "[HanJoo IR] ERROR: $name exited during startup."
       [ -f "$logfile" ] && { echo "----- $name log -----"; cat "$logfile"; echo "---------------------"; }
@@ -129,7 +127,7 @@ wait_http() {
     fi
     i=$((i+1)); sleep 0.25
   done
-  echo "[HanJoo IR] ERROR: $name did not become healthy within 10 seconds."
+  echo "[HanJoo IR] ERROR: $name did not become healthy within 15 seconds."
   [ -f "$logfile" ] && { echo "----- $name log -----"; cat "$logfile"; echo "---------------------"; }
   return 1
 }
@@ -163,17 +161,21 @@ wait_http "Brain service" "http://127.0.0.1:8102/health" "$brain_pid" /tmp/hanjo
 wait_http "Core gateway" "http://127.0.0.1:8099/health" "$core_pid" /tmp/hanjoo-ir-core.log || exit 1
 echo "[HanJoo IR] All services healthy (Core :8099, Protocol :8101, Brain :8102)."
 
+# Important: during long A/C recognition the protocol sidecar can legitimately
+# keep its Node event loop busy for several seconds while native decoders run.
+# A temporary HTTP health timeout must not restart the whole add-on. Runtime
+# supervision therefore checks process liveness only; startup still requires a
+# successful HTTP health response from every service.
 while :; do
   sleep 10
-  for item in "Protocol sidecar|$probe_pid|http://127.0.0.1:8101/health|/tmp/hanjoo-ir-probe.log" \
-              "Brain service|$brain_pid|http://127.0.0.1:8102/health|/tmp/hanjoo-ir-brain.log" \
-              "Core gateway|$core_pid|http://127.0.0.1:8099/health|/tmp/hanjoo-ir-core.log"; do
+  for item in "Protocol sidecar|$probe_pid|/tmp/hanjoo-ir-probe.log" \
+              "Brain service|$brain_pid|/tmp/hanjoo-ir-brain.log" \
+              "Core gateway|$core_pid|/tmp/hanjoo-ir-core.log"; do
     name=$(printf '%s' "$item" | cut -d'|' -f1)
     pid=$(printf '%s' "$item" | cut -d'|' -f2)
-    url=$(printf '%s' "$item" | cut -d'|' -f3)
-    logfile=$(printf '%s' "$item" | cut -d'|' -f4)
-    if ! kill -0 "$pid" 2>/dev/null || ! http_ok "$url"; then
-      echo "[HanJoo IR] ERROR: $name became unavailable; stopping add-on for Supervisor restart."
+    logfile=$(printf '%s' "$item" | cut -d'|' -f3)
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "[HanJoo IR] ERROR: $name process exited; stopping add-on for Supervisor restart."
       dump_log "$name" "$logfile"
       exit 1
     fi
