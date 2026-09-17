@@ -5,6 +5,11 @@ export HANJOO_VERSION="$VERSION"
 SOURCE="/opt/hanjoo/integration/hanjoo_ir"
 OPTIONS="/data/options.json"
 
+# Home Assistant Supervisor normally mounts /data for add-ons. Create it as a
+# defensive fallback so local/CI smoke tests and unusual runtimes don't abort
+# under `set -e` before the services are started.
+mkdir -p /data
+
 if [ -d /config ]; then
   CONFIG_ROOT="/config"
 elif [ -d /homeassistant ]; then
