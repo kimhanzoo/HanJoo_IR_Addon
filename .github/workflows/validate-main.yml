@@ -19,18 +19,24 @@ jobs:
           cfg_ver="$(sed -n 's/^version: "\([^"]*\)"/\1/p' hanjoo_ir_core/config.yaml | head -n1)"
           run_ver="$(sed -n 's/^VERSION="\([^"]*\)"/\1/p' hanjoo_ir_core/run.sh | head -n1)"
           docker_ver="$(sed -n 's/^[[:space:]]*HANJOO_VERSION=\([^[:space:]]*\)/\1/p' hanjoo_ir_core/Dockerfile | head -n1)"
+          manifest_ver="$(python3 -c 'import json; print(json.load(open("hanjoo_ir_core/integration/hanjoo_ir/manifest.json"))["version"])')"
+          const_ver="$(python3 -c 'import re; s=open("hanjoo_ir_core/integration/hanjoo_ir/const.py").read(); print(re.search(r"^VERSION = \"([^\"]+)\"", s, re.M).group(1))')"
           test -n "$cfg_ver"
           test "$cfg_ver" = "$run_ver"
           test "$cfg_ver" = "$docker_ver"
+          test "$cfg_ver" = "$manifest_ver"
+          test "$cfg_ver" = "$const_ver"
           echo "Validated HanJoo version $cfg_ver"
 
-      - name: Syntax check shell and JavaScript
+      - name: Syntax check shell, JavaScript and Manager Python
         shell: bash
         run: |
           set -euo pipefail
           sh -n hanjoo_ir_core/run.sh
           node --check hanjoo_ir_core/probe_server.cjs
           node --check hanjoo_ir_core/core_runtime.protected.cjs
+          node --check hanjoo_ir_core/integration/hanjoo_ir/frontend/hanjoo-ir-panel-v065.js
+          python3 -m compileall -q hanjoo_ir_core/integration/hanjoo_ir
 
       - name: Build add-on image
         shell: bash
