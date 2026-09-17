@@ -44,7 +44,8 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/hanjoo-config/custom_components
           printf '# CI bootstrap\n' >/tmp/hanjoo-config/configuration.yaml
-          docker run -d --rm --name hanjoo-ir-test \
+          docker rm -f hanjoo-ir-test >/dev/null 2>&1 || true
+          docker run -d --name hanjoo-ir-test \
             -v /tmp/hanjoo-config:/config \
             -p 18099:8099 -p 18101:8101 -p 18102:8102 \
             hanjoo-ir:test
@@ -53,14 +54,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          trap 'docker logs hanjoo-ir-test || true' ERR
           for port in 18099 18101 18102; do
             ok=0
             for i in $(seq 1 60); do
+              if ! docker inspect hanjoo-ir-test >/dev/null 2>&1; then
+                echo "Container disappeared while waiting for port $port"
+                break
+              fi
+              running="$(docker inspect -f '{{.State.Running}}' hanjoo-ir-test 2>/dev/null || echo false)"
+              if [ "$running" != "true" ]; then
+                echo "Container stopped while waiting for port $port"
+                docker logs hanjoo-ir-test || true
+                break
+              fi
               if curl -fsS "http://127.0.0.1:${port}/health" | grep -q '"ok":true'; then ok=1; break; fi
               sleep 1
             done
-            test "$ok" = 1
+            if [ "$ok" != 1 ]; then
+              echo "Service on port $port failed health check"
+              docker logs hanjoo-ir-test || true
+              exit 1
+            fi
           done
 
       - name: Verify native AC bridge flags
@@ -83,3 +97,7 @@ jobs:
       - name: Show logs
         if: always()
         run: docker logs hanjoo-ir-test || true
+
+      - name: Cleanup test container
+        if: always()
+        run: docker rm -f hanjoo-ir-test >/dev/null 2>&1 || true
