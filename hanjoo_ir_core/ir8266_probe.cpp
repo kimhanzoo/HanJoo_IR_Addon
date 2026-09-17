@@ -35,7 +35,8 @@ static std::string hex64(uint64_t v) {
   std::ostringstream o; o << "0x" << std::uppercase << std::hex << v; return o.str();
 }
 
-static void emit_match(const decode_results &result, uint8_t tolerance) {
+static void emit_match(const decode_results &result, uint8_t tolerance,
+                       const char *path) {
   std::string protocol = typeToString(result.decode_type);
   bool ac = hasACState(result.decode_type);
   std::ostringstream out;
@@ -45,7 +46,8 @@ static void emit_match(const decode_results &result, uint8_t tolerance) {
       << "\"bits\":" << result.bits << ","
       << "\"ac_state\":" << (ac?"true":"false") << ","
       << "\"repeat\":" << (result.repeat?"true":"false") << ","
-      << "\"tolerance\":" << static_cast<int>(tolerance) << ",";
+      << "\"tolerance\":" << static_cast<int>(tolerance) << ","
+      << "\"decoder_path\":\"" << path << "\",";
   if (ac) {
     size_t bytes = std::min<size_t>((result.bits+7)/8, kStateSizeMax);
     std::ostringstream state; state << std::uppercase << std::hex << std::setfill('0');
@@ -59,6 +61,168 @@ static void emit_match(const decode_results &result, uint8_t tolerance) {
   std::cout << out.str();
 }
 
+static decode_results fresh_result(const decode_results &base) {
+  decode_results r = base;
+  r.decode_type = UNKNOWN;
+  r.bits = 0;
+  r.value = 0;
+  r.address = 0;
+  r.command = 0;
+  r.repeat = false;
+  return r;
+}
+
+static bool try_stateful_ac(IRrecv &receiver, const decode_results &base,
+                            decode_results *matched) {
+#define TRY_AC(call) do { decode_results r = fresh_result(base); if (call) { *matched = r; return true; } } while (0)
+
+  // AC-first is deliberate. IRrecv::decode() returns the first matching decoder;
+  // permissive consumer protocols (notably RC5/RC6) can otherwise claim a short
+  // prefix of a long climate-state capture before Daikin/Panasonic/etc are tried.
+#if DECODE_DAIKIN
+  TRY_AC(receiver.decodeDaikin(&r));
+#endif
+#if DECODE_DAIKIN2
+  TRY_AC(receiver.decodeDaikin2(&r));
+#endif
+#if DECODE_DAIKIN64
+  TRY_AC(receiver.decodeDaikin64(&r));
+#endif
+#if DECODE_DAIKIN128
+  TRY_AC(receiver.decodeDaikin128(&r));
+#endif
+#if DECODE_DAIKIN152
+  TRY_AC(receiver.decodeDaikin152(&r));
+#endif
+#if DECODE_DAIKIN160
+  TRY_AC(receiver.decodeDaikin160(&r));
+#endif
+#if DECODE_DAIKIN176
+  TRY_AC(receiver.decodeDaikin176(&r));
+#endif
+#if DECODE_DAIKIN200
+  TRY_AC(receiver.decodeDaikin200(&r));
+#endif
+#if DECODE_DAIKIN216
+  TRY_AC(receiver.decodeDaikin216(&r));
+#endif
+#if DECODE_DAIKIN312
+  TRY_AC(receiver.decodeDaikin312(&r));
+#endif
+#if DECODE_PANASONIC_AC
+  TRY_AC(receiver.decodePanasonicAC(&r));
+  TRY_AC(receiver.decodePanasonicAC(&r, kStartOffset, kPanasonicAcShortBits));
+#endif
+#if DECODE_PANASONIC_AC32
+  TRY_AC(receiver.decodePanasonicAC32(&r));
+#endif
+#if DECODE_MITSUBISHI_AC
+  TRY_AC(receiver.decodeMitsubishiAC(&r));
+#endif
+#if DECODE_MITSUBISHI112
+  TRY_AC(receiver.decodeMitsubishi112(&r));
+#endif
+#if DECODE_MITSUBISHI136
+  TRY_AC(receiver.decodeMitsubishi136(&r));
+#endif
+#if DECODE_MITSUBISHIHEAVY
+  TRY_AC(receiver.decodeMitsubishiHeavy(&r));
+#endif
+#if DECODE_FUJITSU_AC
+  TRY_AC(receiver.decodeFujitsuAC(&r));
+#endif
+#if DECODE_GREE
+  TRY_AC(receiver.decodeGree(&r));
+#endif
+#if DECODE_MIDEA
+  TRY_AC(receiver.decodeMidea(&r));
+#endif
+#if DECODE_TOSHIBA_AC
+  TRY_AC(receiver.decodeToshibaAC(&r));
+#endif
+#if DECODE_SAMSUNG_AC
+  TRY_AC(receiver.decodeSamsungAC(&r));
+#endif
+#if DECODE_SHARP_AC
+  TRY_AC(receiver.decodeSharpAc(&r));
+#endif
+#if DECODE_KELVINATOR
+  TRY_AC(receiver.decodeKelvinator(&r));
+#endif
+#if DECODE_SANYO_AC
+  TRY_AC(receiver.decodeSanyoAc(&r));
+#endif
+#if DECODE_SANYO_AC88
+  TRY_AC(receiver.decodeSanyoAc88(&r));
+#endif
+#if DECODE_SANYO_AC152
+  TRY_AC(receiver.decodeSanyoAc152(&r));
+#endif
+#if DECODE_HAIER_AC
+  TRY_AC(receiver.decodeHaierAC(&r));
+#endif
+#if DECODE_HAIER_AC_YRW02
+  TRY_AC(receiver.decodeHaierACYRW02(&r));
+#endif
+#if DECODE_HAIER_AC160
+  TRY_AC(receiver.decodeHaierAC160(&r));
+#endif
+#if DECODE_HAIER_AC176
+  TRY_AC(receiver.decodeHaierAC176(&r));
+#endif
+#if (DECODE_HITACHI_AC || DECODE_HITACHI_AC2 || DECODE_HITACHI_AC264 || DECODE_HITACHI_AC344)
+  TRY_AC(receiver.decodeHitachiAC(&r));
+#endif
+#if DECODE_HITACHI_AC1
+  TRY_AC(receiver.decodeHitachiAC1(&r));
+#endif
+#if DECODE_HITACHI_AC3
+  TRY_AC(receiver.decodeHitachiAc3(&r));
+#endif
+#if DECODE_HITACHI_AC296
+  TRY_AC(receiver.decodeHitachiAc296(&r));
+#endif
+#if DECODE_HITACHI_AC424
+  TRY_AC(receiver.decodeHitachiAc424(&r));
+#endif
+#if DECODE_WHIRLPOOL_AC
+  TRY_AC(receiver.decodeWhirlpoolAC(&r));
+#endif
+#if DECODE_ELECTRA_AC
+  TRY_AC(receiver.decodeElectraAC(&r));
+#endif
+#if DECODE_VESTEL_AC
+  TRY_AC(receiver.decodeVestelAc(&r));
+#endif
+#if DECODE_NEOCLIMA
+  TRY_AC(receiver.decodeNeoclima(&r));
+#endif
+#if DECODE_AIRWELL
+  TRY_AC(receiver.decodeAirwell(&r));
+#endif
+#if DECODE_DELONGHI_AC
+  TRY_AC(receiver.decodeDelonghiAc(&r));
+#endif
+#if DECODE_TECHNIBEL_AC
+  TRY_AC(receiver.decodeTechnibelAc(&r));
+#endif
+#if DECODE_CORONA_AC
+  TRY_AC(receiver.decodeCoronaAc(&r));
+#endif
+#if DECODE_MIRAGE
+  TRY_AC(receiver.decodeMirage(&r));
+#endif
+#if DECODE_ECOCLIM
+  TRY_AC(receiver.decodeEcoclim(&r));
+#endif
+#if DECODE_TEKNOPOINT
+  TRY_AC(receiver.decodeTeknopoint(&r));
+#endif
+
+#undef TRY_AC
+  return false;
+}
+
 int main() {
   std::string line; if (!std::getline(std::cin, line)) return 2;
   auto raw = parse_csv(line);
@@ -67,20 +231,29 @@ int main() {
     return 0;
   }
 
-  // Start strict and relax only when needed. This improves captures from cheap
-  // IR receivers without making the normal clean-signal path unnecessarily lax.
-  const uint8_t tolerances[] = {25, 30, 40, 50, 55};
-  for (uint8_t tolerance : tolerances) {
-    decode_results result;
-    result.rawbuf = raw.data();
-    result.rawlen = static_cast<uint16_t>(raw.size());
-    result.overflow = false;
+  decode_results base;
+  base.rawbuf = raw.data();
+  base.rawlen = static_cast<uint16_t>(raw.size());
+  base.overflow = false;
 
+  // Start strict and relax timing tolerance only when needed. At every tolerance
+  // explicitly probe stateful AC decoders first, then fall back to the generic
+  // library ordering for TVs/audio/other consumer remotes.
+  const uint8_t tolerances[] = {20, 25, 30, 40, 50, 55};
+  for (uint8_t tolerance : tolerances) {
     IRrecv receiver(0, static_cast<uint16_t>(std::min<size_t>(raw.size()+8, 65535)));
     receiver.setTolerance(tolerance);
-    bool ok = receiver.decode(&result, nullptr, 2, 0);
-    if (ok && result.decode_type != UNKNOWN) {
-      emit_match(result, tolerance);
+
+    decode_results ac_result;
+    if (try_stateful_ac(receiver, base, &ac_result) && ac_result.decode_type != UNKNOWN) {
+      emit_match(ac_result, tolerance, "ac_first");
+      return 0;
+    }
+
+    decode_results generic = fresh_result(base);
+    bool ok = receiver.decode(&generic, nullptr, 12, 0);
+    if (ok && generic.decode_type != UNKNOWN) {
+      emit_match(generic, tolerance, "generic");
       return 0;
     }
   }
