@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "IRac.h"
 #include "IRrecv.h"
 #include "IRremoteESP8266.h"
 #include "IRutils.h"
@@ -35,6 +36,35 @@ static std::string hex64(uint64_t v) {
   std::ostringstream o; o << "0x" << std::uppercase << std::hex << v; return o.str();
 }
 
+static void emit_hvac_state(std::ostringstream &out, const decode_results &result) {
+  stdAc::state_t state;
+  if (!IRAcUtils::decodeToState(&result, &state)) {
+    out << "null";
+    return;
+  }
+  out << "{"
+      << "\"protocol\":" << static_cast<int>(state.protocol) << ","
+      << "\"model\":" << static_cast<int>(state.model) << ","
+      << "\"command\":" << static_cast<int>(state.command) << ","
+      << "\"power\":" << (state.power ? "true" : "false") << ","
+      << "\"mode\":" << static_cast<int>(state.mode) << ","
+      << "\"celsius\":" << (state.celsius ? "true" : "false") << ","
+      << "\"degrees\":" << state.degrees << ","
+      << "\"fanspeed\":" << static_cast<int>(state.fanspeed) << ","
+      << "\"swingv\":" << static_cast<int>(state.swingv) << ","
+      << "\"swingh\":" << static_cast<int>(state.swingh) << ","
+      << "\"quiet\":" << (state.quiet ? "true" : "false") << ","
+      << "\"turbo\":" << (state.turbo ? "true" : "false") << ","
+      << "\"econo\":" << (state.econo ? "true" : "false") << ","
+      << "\"light\":" << (state.light ? "true" : "false") << ","
+      << "\"filter\":" << (state.filter ? "true" : "false") << ","
+      << "\"clean\":" << (state.clean ? "true" : "false") << ","
+      << "\"beep\":" << (state.beep ? "true" : "false") << ","
+      << "\"sleep\":" << state.sleep << ","
+      << "\"clock\":" << state.clock
+      << "}";
+}
+
 static void emit_match(const decode_results &result, uint8_t tolerance,
                        const char *path) {
   std::string protocol = typeToString(result.decode_type);
@@ -52,7 +82,8 @@ static void emit_match(const decode_results &result, uint8_t tolerance,
     size_t bytes = std::min<size_t>((result.bits+7)/8, kStateSizeMax);
     std::ostringstream state; state << std::uppercase << std::hex << std::setfill('0');
     for (size_t i=0;i<bytes;++i) state << std::setw(2) << static_cast<int>(result.state[i]);
-    out << "\"state_hex\":\"" << state.str() << "\"";
+    out << "\"state_hex\":\"" << state.str() << "\",\"hvac_state\":";
+    emit_hvac_state(out, result);
   } else {
     out << "\"value\":\"" << hex64(result.value) << "\",\"address\":" << result.address
         << ",\"command\":" << result.command;
@@ -76,9 +107,9 @@ static bool try_stateful_ac(IRrecv &receiver, const decode_results &base,
                             decode_results *matched) {
 #define TRY_AC(call) do { decode_results r = fresh_result(base); if (call) { *matched = r; return true; } } while (0)
 
-  // AC-first is deliberate. IRrecv::decode() returns the first matching decoder;
-  // permissive consumer protocols (notably RC5/RC6) can otherwise claim a short
-  // prefix of a long climate-state capture before Daikin/Panasonic/etc are tried.
+  // Follow the same principle used by IRrecvDump/Tasmota: preserve the whole
+  // climate-state capture and prefer the dedicated AC decoders. Generic RC/TV
+  // protocols are only a fallback after the climate decoders fail.
 #if DECODE_DAIKIN
   TRY_AC(receiver.decodeDaikin(&r));
 #endif
@@ -236,10 +267,10 @@ int main() {
   base.rawlen = static_cast<uint16_t>(raw.size());
   base.overflow = false;
 
-  // Start strict and relax timing tolerance only when needed. At every tolerance
-  // explicitly probe stateful AC decoders first, then fall back to the generic
-  // library ordering for TVs/audio/other consumer remotes.
-  const uint8_t tolerances[] = {20, 25, 30, 40, 50, 55};
+  // IRremoteESP8266 and Tasmota normally use about 25% tolerance. Relax only
+  // moderately for automatic recognition; very loose 50-55% matching caused
+  // false RC5/RC6/NEC classifications on long climate captures.
+  const uint8_t tolerances[] = {25, 30, 35, 40};
   for (uint8_t tolerance : tolerances) {
     IRrecv receiver(0, static_cast<uint16_t>(std::min<size_t>(raw.size()+8, 65535)));
     receiver.setTolerance(tolerance);
@@ -249,6 +280,12 @@ int main() {
       emit_match(ac_result, tolerance, "ac_first");
       return 0;
     }
+
+    // Long captures with multiple packets are much more likely to be climate
+    // remotes than RC5/RC6-style consumer frames. Do not let a generic decoder
+    // claim a tiny prefix of such a capture. The sidecar will still keep RAW and
+    // irtxrx evidence as fallbacks.
+    if (raw.size() > 260) continue;
 
     decode_results generic = fresh_result(base);
     bool ok = receiver.decode(&generic, nullptr, 12, 0);
