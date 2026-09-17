@@ -22,6 +22,9 @@ from .const import (
 from .manager import HanJooIRManager
 from .online_library import OnlineLibrary
 from .websocket_api import async_register_websocket_commands
+# Installs the thin translation layer that feeds repeated IRremoteESP8266 A/C
+# evidence into the protected Brain without moving scoring policy into Manager.
+from . import native_bridge as _native_bridge  # noqa: F401,E402
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -122,11 +125,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-
-    # IMPORTANT: do not remove the sidebar panel during a config-entry reload.
-    # Entity-topology reloads are normal after adding/deleting a device; removing
-    # the route even briefly makes Home Assistant redirect the user to Overview.
-    # The panel is removed only when the config entry itself is deleted.
     return True
 
 
