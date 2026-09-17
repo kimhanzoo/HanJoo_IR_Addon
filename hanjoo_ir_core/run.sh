@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-VERSION="0.6.12"
+VERSION="0.6.13"
 export HANJOO_VERSION="$VERSION"
 SOURCE="/opt/hanjoo/integration/hanjoo_ir"
 OPTIONS="/data/options.json"
@@ -161,11 +161,6 @@ wait_http "Brain service" "http://127.0.0.1:8102/health" "$brain_pid" /tmp/hanjo
 wait_http "Core gateway" "http://127.0.0.1:8099/health" "$core_pid" /tmp/hanjoo-ir-core.log || exit 1
 echo "[HanJoo IR] All services healthy (Core :8099, Protocol :8101, Brain :8102)."
 
-# Important: during long A/C recognition the protocol sidecar can legitimately
-# keep its Node event loop busy for several seconds while native decoders run.
-# A temporary HTTP health timeout must not restart the whole add-on. Runtime
-# supervision therefore checks process liveness only; startup still requires a
-# successful HTTP health response from every service.
 while :; do
   sleep 10
   for item in "Protocol sidecar|$probe_pid|/tmp/hanjoo-ir-probe.log" \
