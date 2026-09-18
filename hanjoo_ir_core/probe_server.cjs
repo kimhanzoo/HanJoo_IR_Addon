@@ -256,7 +256,11 @@ function aggregateNative(info) {
     if(!row.best)continue; const {q,...best}=row.best;
     const decorated={...best,variant_hits:row.variants.size,full_capture_match:row.full,evidence_variants:[...row.variants].slice(0,8)};
     diagnostics.push(decorated);
-    if(!best.ac_state && info.detected_frames>1) continue;
+    // Consumer remotes often repeat the same command as a second frame.
+    // Keep a generic decode when the full capture and at least one extracted
+    // frame agree on the exact protocol/value. This rejects one-off prefix
+    // matches while allowing legitimate NEC/Samsung/LG/etc repeat bursts.
+    if(!best.ac_state && info.detected_frames>1 && !(row.full && row.variants.size>=2)) continue;
     if(!best.ac_state && Number(best.tolerance||25)>40) continue;
     if(!best.ac_state && !row.full && row.variants.size<2) continue;
     candidates.push(decorated);
