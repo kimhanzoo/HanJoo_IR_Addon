@@ -9,7 +9,7 @@ const ir = requireFromRuntime("irtxrx");
 const PORT = Number(process.argv[2] || 8101);
 const VERSION = process.env.HANJOO_VERSION || "0.6.15";
 const MAX_TIMINGS = 20000;
-const MAX_VARIANTS = 12;
+const MAX_VARIANTS = 8;
 const FRAME_GAP_US = 6500;
 const LONG_AC_GAP_US = 18000;
 const MIN_VARIANT_TIMINGS = 10;
@@ -34,8 +34,22 @@ function normalizeSignedTimings(values) {
     const n = Math.abs(raw);
     if (!Number.isFinite(n) || n <= 0) continue;
     const rounded = Math.round(n);
-    out.push(raw < 0 ? -rounded : rounded);
+    const signed = raw < 0 ? -rounded : rounded;
+
+    // Preserve receiver mark/space polarity. If a transport ever produces
+    // adjacent timings with the same polarity, merge them rather than shifting
+    // the mark/space phase seen by native decoders.
+    if (out.length && Math.sign(out[out.length - 1]) === Math.sign(signed)) {
+      out[out.length - 1] += signed;
+    } else {
+      out.push(signed);
+    }
   }
+
+  // HA captures may include a leading idle-space. IRremoteESP8266 rawbuf[0]
+  // already receives a synthetic pre-gap, so the first payload duration must
+  // be a mark. Dropping only leading spaces keeps real inter-frame gaps intact.
+  while (out.length && out[0] < 0) out.shift();
   return out;
 }
 function normalizeTimings(values) { return normalizeSignedTimings(values).map(Math.abs); }
@@ -84,11 +98,12 @@ function buildTimingVariants(values) {
   // Avoid the old combinatorial 20+ variant fan-out that could OOM/kill the
   // sidecar while three guided captures were being analysed.
   if (longGapCount > 0 && abs.length > 220) {
+    // A modern 50 ms receiver capture already contains the complete stateful
+    // A/C press. Partial-section variants are both expensive and more prone to
+    // false positives on checksum-less protocols. Only try small even trims to
+    // recover from an occasional leading pair/noise while preserving phase.
     for (const offset of [2,4,6]) {
       if (abs.length - offset >= MIN_VARIANT_TIMINGS) add(`trim-${offset}`, abs.slice(offset), { trim_offset:offset });
-    }
-    for (let i = 0; i < Math.min(frameCount, 6); i++) {
-      add(`frame-${i+1}`, abs.slice(starts[i], ends[i]), { frame_start:i, frame_end:i });
     }
   } else {
     for (let i = 0; i < frameCount; i++) add(`frame-${i+1}`, abs.slice(starts[i], ends[i]), { frame_start:i, frame_end:i });
@@ -156,7 +171,7 @@ function aggregateIrtxrx(info) {
 function probeNativeSingle(timings) {
   const t = normalizeTimings(timings);
   if (t.length < 4) return {ok:true,coverage:128,match:null};
-  const p = spawnSync("/opt/hanjoo/ir8266_probe", [], {input:t.join(",")+"\n",encoding:"utf8",timeout:3000,maxBuffer:1024*1024});
+  const p = spawnSync("/opt/hanjoo/ir8266_probe", [], {input:t.join(",")+"\n",encoding:"utf8",timeout:1500,maxBuffer:1024*1024});
   if (p.error) return {ok:false,coverage:128,error:String(p.error.message||p.error),match:null};
   if (p.status !== 0) return {ok:false,coverage:128,error:String(p.stderr||`exit ${p.status}`),match:null};
   try { return JSON.parse(p.stdout||"{}"); } catch(e) { return {ok:false,coverage:128,error:`invalid native decoder JSON: ${e.message}`,match:null}; }
@@ -231,7 +246,22 @@ function mergeForBrain(irtxrx, native) {
 function runPipeline(timings){
   const variantInfo=buildTimingVariants(timings);
   const native=aggregateNative(variantInfo);
-  const irtxrx=aggregateIrtxrx(variantInfo);
+
+  // A full-capture stateful native match is the strongest evidence we have:
+  // dedicated IRremoteESP8266 decoders validate the protocol structure and,
+  // where defined, checksum. Avoid scanning ~90 public codecs again in this
+  // case. This lowers CPU/RAM use and removes weak competing family guesses.
+  const nativeFullAc = !!(native.match?.ac_state && native.match?.full_capture_match);
+  const irtxrx = nativeFullAc
+    ? {
+        timings:variantInfo.variants[0]?.timings?.length||0,
+        registered_protocols:(ir.REGISTERED_PROTOCOLS||[]).length,
+        variants_tested:0,
+        detected_frames:variantInfo.detected_frames,
+        matches:[],
+        skipped:"native_full_ac_confirmed"
+      }
+    : aggregateIrtxrx(variantInfo);
   const matches=mergeForBrain(irtxrx,native);
   return {variantInfo,irtxrx,native,matches};
 }
@@ -239,7 +269,7 @@ function runPipeline(timings){
 function send(res,status,body){const data=JSON.stringify(body);res.writeHead(status,{"content-type":"application/json; charset=utf-8","content-length":Buffer.byteLength(data)});res.end(data);}
 
 const server=http.createServer((req,res)=>{
-  if(req.method==="GET"&&req.url==="/health")return send(res,200,{ok:true,service:"hanjoo-public-codec-probe",version:VERSION,irtxrx_protocols:(ir.REGISTERED_PROTOCOLS||[]).length,irremoteesp8266_protocols:128,recognition_coverage:128,multi_frame_probe:true,native_brain_bridge:true,tasmota_style_ac:true,hvac_state_bridge:true,resource_guard:true});
+  if(req.method==="GET"&&req.url==="/health")return send(res,200,{ok:true,service:"hanjoo-public-codec-probe",version:VERSION,irtxrx_protocols:(ir.REGISTERED_PROTOCOLS||[]).length,irremoteesp8266_protocols:128,recognition_coverage:128,multi_frame_probe:true,native_brain_bridge:true,tasmota_style_ac:true,hvac_state_bridge:true,resource_guard:true,signed_input:true,native_short_circuit:true});
   const isProbe=req.method==="POST"&&(req.url==="/v1/probe"||req.url==="/v1/probe-all");
   if(!isProbe)return send(res,404,{error:"not_found"});
   let raw="";req.setEncoding("utf8");req.on("data",c=>{raw+=c;if(raw.length>4_000_000)req.destroy();});
