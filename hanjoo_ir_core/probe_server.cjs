@@ -55,6 +55,30 @@ function normalizeSignedTimings(values) {
 function normalizeTimings(values) { return normalizeSignedTimings(values).map(Math.abs); }
 function variantKey(values) { return values.join(","); }
 
+function snapNecFrame(values) {
+  const t=values.map(Math.abs);
+  if (t.length < 68) return null;
+  const near=(v,target,pct)=>Math.abs(v-target) <= target*pct;
+  if (!near(t[0],8960,0.30) || !near(t[1],4480,0.30)) return null;
+  const out=[8960,4480];
+  let pos=2;
+  for (let bit=0; bit<32; bit++) {
+    if (pos+1 >= t.length) return null;
+    const mark=t[pos], space=t[pos+1];
+    if (!near(mark,560,0.40)) return null;
+    if (near(space,560,0.45)) out.push(560,560);
+    else if (near(space,1680,0.35)) out.push(560,1680);
+    else return null;
+    pos += 2;
+  }
+  if (pos >= t.length || !near(t[pos],560,0.45)) return null;
+  out.push(560);
+  pos++;
+  if (pos < t.length && t[pos] >= 10000) out.push(t[pos]);
+  else out.push(30000);
+  return out;
+}
+
 function buildTimingVariants(values) {
   const signed = normalizeSignedTimings(values);
   const abs = signed.map(Math.abs);
@@ -110,7 +134,12 @@ function buildTimingVariants(values) {
       if (abs.length - offset >= MIN_VARIANT_TIMINGS) add(`trim-${offset}`, abs.slice(offset), { trim_offset:offset });
     }
   } else {
-    for (let i = 0; i < frameCount; i++) add(`frame-${i+1}`, abs.slice(starts[i], ends[i]), { frame_start:i, frame_end:i });
+    for (let i = 0; i < frameCount; i++) {
+      const frame=abs.slice(starts[i], ends[i]);
+      add(`frame-${i+1}`, frame, { frame_start:i, frame_end:i });
+      const nec=snapNecFrame(frame);
+      if (nec) add(`frame-${i+1}-nec-normalized`, nec, { frame_start:i, frame_end:i, normalized_protocol:"NEC" });
+    }
     for (let width = 2; width <= Math.min(3, frameCount); width++) {
       for (let i = 0; i + width <= frameCount; i++) {
         const j = i + width - 1;
