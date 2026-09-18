@@ -56,16 +56,9 @@ if (PanelClass) {
     queueMicrotask(() => {
       const root = this.shadowRoot;
       if (!root) return;
-
-      const recognitionIds = new Set(
-        (this._identifyResult?.candidates || [])
-          .map(row => row?.candidate)
-          .filter(candidate => candidate?.recognition_only && candidate?.id)
-          .map(candidate => String(candidate.id))
-      );
-      root.querySelectorAll("[data-identify-add]").forEach(button => {
-        if (recognitionIds.has(String(button.dataset.identifyAdd || ""))) button.remove();
-      });
+      // Recognition-only family matches keep their compatibility-search action.
+      // They are not exact models, but they are useful evidence for finding a
+      // compatible profile instead of leaving only RAW replay.
 
       const actionBar = root.querySelector(".identify-start-actions");
       const reset = root.querySelector("#identify-reset");
