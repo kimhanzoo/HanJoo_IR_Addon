@@ -7,7 +7,7 @@ const requireFromRuntime = createRequire("/opt/hanjoo/package.json");
 const ir = requireFromRuntime("irtxrx");
 
 const PORT = Number(process.argv[2] || 8101);
-const VERSION = process.env.HANJOO_VERSION || "0.6.17";
+const VERSION = process.env.HANJOO_VERSION || "0.6.18";
 const MAX_TIMINGS = 20000;
 const MAX_VARIANTS = 8;
 const FRAME_GAP_US = 6500;
