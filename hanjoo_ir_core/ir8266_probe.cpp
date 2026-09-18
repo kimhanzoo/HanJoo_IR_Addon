@@ -69,12 +69,14 @@ static void emit_match(const decode_results &result, uint8_t tolerance,
                        const char *path) {
   std::string protocol = typeToString(result.decode_type);
   bool ac = hasACState(result.decode_type);
+  bool irac_supported = IRac::isProtocolSupported(result.decode_type);
   std::ostringstream out;
   out << "{\"ok\":true,\"coverage\":128,\"match\":{"
       << "\"protocol\":\"" << esc(protocol) << "\","
       << "\"type_id\":" << static_cast<int>(result.decode_type) << ","
       << "\"bits\":" << result.bits << ","
       << "\"ac_state\":" << (ac?"true":"false") << ","
+      << "\"irac_supported\":" << (irac_supported?"true":"false") << ","
       << "\"repeat\":" << (result.repeat?"true":"false") << ","
       << "\"tolerance\":" << static_cast<int>(tolerance) << ","
       << "\"decoder_path\":\"" << path << "\",";
