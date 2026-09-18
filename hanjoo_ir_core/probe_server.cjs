@@ -302,7 +302,17 @@ function aggregateNative(info) {
     // Keep a generic decode when the full capture and at least one extracted
     // frame agree on the exact protocol/value. This rejects one-off prefix
     // matches while allowing legitimate NEC/Samsung/LG/etc repeat bursts.
-    if(!best.ac_state && info.detected_frames>1 && !(row.full && row.variants.size>=2)) continue;
+    if(!best.ac_state && info.detected_frames>1) {
+      const frameIds=new Set(
+        [...row.variants]
+          .map(label=>/^frame-(\d+)/.exec(String(label))?.[1])
+          .filter(Boolean)
+      );
+      // Require the same generic decode on at least two physical repeat
+      // sections. This keeps legitimate TV/audio bursts such as LG-over-NEC,
+      // while rejecting a one-off whole-capture false positive (e.g. Epson).
+      if(frameIds.size<2) continue;
+    }
     if(!best.ac_state && Number(best.tolerance||25)>40) continue;
     if(!best.ac_state && !row.full && row.variants.size<2) continue;
     candidates.push(decorated);
