@@ -177,20 +177,68 @@ function probeNativeSingle(timings) {
   try { return JSON.parse(p.stdout||"{}"); } catch(e) { return {ok:false,coverage:128,error:`invalid native decoder JSON: ${e.message}`,match:null}; }
 }
 
-function inferBrand(name) {
+function inferBrand(name, match = null) {
   const p=String(name||"").toUpperCase();
-  const rules=[["DAIKIN","Daikin"],["PANASONIC","Panasonic"],["MITSUBISHI","Mitsubishi"],["FUJITSU","Fujitsu"],["HITACHI","Hitachi"],["SAMSUNG","Samsung"],["LG","LG"],["GREE","Gree"],["MIDEA","Midea"],["HAIER","Haier"],["TOSHIBA","Toshiba"],["CARRIER","Carrier"],["SHARP","Sharp"],["SANYO","Sanyo"],["WHIRLPOOL","Whirlpool"],["COOLIX","Coolix"],["AIRWELL","Airwell"],["TCL","TCL"],["SONY","Sony"],["NEC","NEC"],["JVC","JVC"],["DENON","Denon"],["RC5","Philips/RC5"],["RC6","Philips/RC6"]];
-  for (const [token,brand] of rules) if (p.includes(token)) return brand;
-  return null;
-}
 
+  // Protocols whose IRremoteESP8266 decode type is itself vendor-specific.
+  // Generic wire formats such as NEC/RC5/RC6 deliberately stay unbranded
+  // unless a separate high-confidence fingerprint below is available.
+  const rules=[
+    ["AIWA","Aiwa"],["AMCOR","Amcor"],["ARGO","Argo"],["BOSCH","Bosch"],
+    ["CARRIER","Carrier"],["COOLIX","Coolix"],["CORONA","Corona"],
+    ["DAIKIN","Daikin"],["DELONGHI","DeLonghi"],["DENON","Denon"],
+    ["DISH","Dish"],["ELECTRA","Electra"],["EUROM","Eurom"],
+    ["FUJITSU","Fujitsu"],["GOODWEATHER","Goodweather"],["GREE","Gree"],
+    ["HAIER","Haier"],["HITACHI","Hitachi"],["INAX","Inax"],["JVC","JVC"],
+    ["KELON","Kelon"],["KELVINATOR","Kelvinator"],["LG","LG"],
+    ["LUTRON","Lutron"],["MIDEA","Midea"],["MIRAGE","Mirage"],
+    ["MITSUBISHI","Mitsubishi"],["NIKAI","Nikai"],["PANASONIC","Panasonic"],
+    ["PIONEER","Pioneer"],["SAMSUNG","Samsung"],["SANYO","Sanyo"],
+    ["SHARP","Sharp"],["SHERWOOD","Sherwood"],["SONY","Sony"],["TCL","TCL"],
+    ["TECO","Teco"],["TECHNIBEL","Technibel"],["TEKNOPOINT","Teknopoint"],
+    ["TOSHIBA","Toshiba"],["TROTEC","Trotec"],["VESTEL","Vestel"],
+    ["VOLTAS","Voltas"],["WHIRLPOOL","Whirlpool"],["WHYNTER","Whynter"],
+    ["YORK","York"]
+  ];
+  for (const [token,brand] of rules) {
+    if (p.includes(token)) return {brand,evidence:"protocol_name",confidence:100};
+  }
+
+  // Some manufacturers use a generic NEC wire format, so IRremoteESP8266 can
+  // correctly report NEC while the brand is still recoverable from a stable
+  // vendor prefix. Only fingerprints with very strong, widely-used signatures
+  // belong here; otherwise leave the brand unknown rather than guess.
+  if (p === "NEC" || p === "NEC_LIKE") {
+    try {
+      const raw=String(match?.value||"").trim();
+      const v=BigInt(raw);
+      const bits=Number(match?.bits||0);
+      if (bits === 32) {
+        const prefix=Number((v >> 16n) & 0xFFFFn);
+        const cmd=Number((v >> 8n) & 0xFFn);
+        const inv=Number(v & 0xFFn);
+        const validComplement=((cmd ^ inv) & 0xFF) === 0xFF;
+        if (validComplement && prefix === 0x20DF) {
+          return {brand:"LG",evidence:"nec_vendor_prefix_20DF",confidence:98};
+        }
+        if (validComplement && prefix === 0xE0E0) {
+          return {brand:"Samsung",evidence:"nec_vendor_prefix_E0E0",confidence:98};
+        }
+      }
+    } catch (_) {}
+  }
+  return {brand:null,evidence:null,confidence:0};
+}
 function aggregateNative(info) {
   const groups=new Map(), errors=[];
   for (const variant of info.variants) {
     const result=probeNativeSingle(variant.timings);
     if (!result?.ok && result?.error) errors.push(`${variant.label}: ${result.error}`);
     const m=result?.match; if (!m?.protocol) continue;
-    m.brand=inferBrand(m.protocol);
+    const inferredBrand=inferBrand(m.protocol,m);
+    m.brand=inferredBrand.brand;
+    m.brand_evidence=inferredBrand.evidence;
+    m.brand_confidence=inferredBrand.confidence;
     const stateKey=m.ac_state?String(m.state_hex||""):`${m.value||""}:${m.address??""}:${m.command??""}`;
     const key=`${String(m.protocol).toLowerCase()}|${Number(m.bits||0)}|${stateKey}`;
     let row=groups.get(key); if(!row){row={best:null,variants:new Set(),full:false};groups.set(key,row);} row.variants.add(variant.label); if(variant.full)row.full=true;
@@ -223,7 +271,7 @@ function nativeToBrainMatch(m) {
   const ac = !!m.ac_state;
   const hvac = ac && m.hvac_state && typeof m.hvac_state === "object" ? safe(m.hvac_state) : null;
   const state = ac ? { state_hex:m.state_hex||null, bits:m.bits||0, hvac_state:hvac } : { value:m.value||null, address:m.address, command:m.command, bits:m.bits||0 };
-  return { protocol:m.protocol, brand:m.brand||inferBrand(m.protocol), type:ac?"ac":"remote", structured:ac, can_encode:false,
+  return { protocol:m.protocol, brand:m.brand||inferBrand(m.protocol,m).brand, brand_evidence:m.brand_evidence||null, brand_confidence:m.brand_confidence||0, type:ac?"ac":"remote", structured:ac, can_encode:false,
     richness:ac?Math.max(8,richness(hvac,hvac)):2, canonical:hvac, state, source:"irremoteesp8266", native_decoder:true,
     ac_state:ac, bits:m.bits||0, state_hex:m.state_hex||null, hvac_state:hvac, value:m.value||null, address:m.address,
     command:m.command, tolerance:m.tolerance, decoder_path:m.decoder_path||null, variant:m.variant||null,
