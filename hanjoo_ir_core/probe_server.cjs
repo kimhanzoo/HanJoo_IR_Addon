@@ -327,9 +327,9 @@ function nativeToBrainMatch(m) {
   const ac = !!m.ac_state;
   const hvac = ac && m.hvac_state && typeof m.hvac_state === "object" ? safe(m.hvac_state) : null;
   const state = ac ? { state_hex:m.state_hex||null, bits:m.bits||0, hvac_state:hvac } : { value:m.value||null, address:m.address, command:m.command, bits:m.bits||0 };
-  return { protocol:m.protocol, brand:m.brand||inferBrand(m.protocol,m).brand, brand_evidence:m.brand_evidence||null, brand_confidence:m.brand_confidence||0, type:ac?"ac":"remote", structured:ac, can_encode:false,
+  return { protocol:m.protocol, brand:m.brand||inferBrand(m.protocol,m).brand, brand_evidence:m.brand_evidence||null, brand_confidence:m.brand_confidence||0, type:ac?"ac":"remote", structured:ac, can_encode:!!m.irac_supported,
     richness:ac?Math.max(8,richness(hvac,hvac)):2, canonical:hvac, state, source:"irremoteesp8266", native_decoder:true,
-    ac_state:ac, bits:m.bits||0, state_hex:m.state_hex||null, hvac_state:hvac, value:m.value||null, address:m.address,
+    ac_state:ac, irac_supported:!!m.irac_supported, bits:m.bits||0, state_hex:m.state_hex||null, hvac_state:hvac, value:m.value||null, address:m.address,
     command:m.command, tolerance:m.tolerance, decoder_path:m.decoder_path||null, variant:m.variant||null,
     variant_hits:m.variant_hits||1, full_capture_match:!!m.full_capture_match, evidence_variants:m.evidence_variants||[] };
 }
