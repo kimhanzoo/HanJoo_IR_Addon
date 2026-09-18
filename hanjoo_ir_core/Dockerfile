@@ -52,6 +52,6 @@ RUN find /opt/hanjoo/integration -type d -name __pycache__ -prune -exec rm -rf {
  && apk del git g++ make binutils
 
 ENV NODE_PATH=/opt/hanjoo/node_modules \
-    HANJOO_VERSION=0.6.20
+    HANJOO_VERSION=0.6.21
 EXPOSE 8099 8101 8102
 CMD ["/run.sh"]
