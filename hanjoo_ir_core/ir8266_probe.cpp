@@ -293,6 +293,19 @@ int main() {
       emit_match(generic, tolerance, "generic");
       return 0;
     }
+
+#if DECODE_NEC
+    // Desktop/unit-test builds occasionally miss a repeated NEC burst through
+    // the umbrella decode() dispatcher even though the dedicated decoder can
+    // decode the supplied rawbuf directly. Keep this as a strict fallback so
+    // NEC/NECext consumer remotes still benefit from IRremoteESP8266's own
+    // checksum/address/command parsing.
+    generic = fresh_result(base);
+    if (receiver.decodeNEC(&generic, kStartOffset, kNECBits, true)) {
+      emit_match(generic, tolerance, "generic_nec_strict");
+      return 0;
+    }
+#endif
   }
 
   std::cout << "{\"ok\":true,\"match\":null,\"coverage\":128}\n";
