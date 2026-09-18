@@ -96,6 +96,28 @@ jobs:
           echo "$health" | grep -q '"signed_input":true'
           echo "$health" | grep -q '"native_short_circuit":true'
 
+      - name: Verify repeated NEC vendor fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/lg-nec.json
+          import json
+          raw = """8999 -4437 563 -563 593 -500 563 -1687 532 -531 605 -489 593 -532 562 -531 688 -437 656 -1594 532 -1625 593 -500 563 -1718 500 -1657 593 -1637 551 -1656 594 -1625 594 -500 593 -500 594 -531 657 -1605 520 -531 604 -490 716 -424 644 -434 656 -1594 531 -1625 594 -1625 594 -500 594 -1625 594 -1625 594 -1625 562 -1625 594 -40594 9032 -4437 594 -500 563 -562 657 -1593 532 -531 562 -532 656 -437 698 -427 657 -437 656 -1594 563 -1593 563 -563 593 -1656 532 -1625 594 -1625 572 -1647 562 -1626 562 -563 594 -512 682 -421 622 -1674 508 -511 640 -471 595 -489 625 -501 593 -1656 500 -1656 562 -1656 563 -531 625 -1625 532 -1656 531 -1656 563 -1656 562 -50000"""
+          print(json.dumps({"timings":[int(x) for x in raw.split()]}))
+          PY
+          curl --max-time 20 -fsS -H 'content-type: application/json'             --data-binary @/tmp/lg-nec.json http://127.0.0.1:18101/v1/probe-all >/tmp/lg-nec-result.json
+          cat /tmp/lg-nec-result.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open("/tmp/lg-nec-result.json"))
+          rows=(p.get("irremoteesp8266") or {}).get("candidates") or []
+          assert rows, p
+          best=rows[0]
+          assert str(best.get("protocol","")).upper() == "NEC", best
+          assert best.get("brand") == "LG", best
+          assert best.get("brand_evidence") == "nec_vendor_prefix_20DF", best
+          PY
+
       - name: Stress long AC probe and verify services survive
         shell: bash
         run: |
