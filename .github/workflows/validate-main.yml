@@ -93,6 +93,8 @@ jobs:
           echo "$health" | grep -q '"tasmota_style_ac":true'
           echo "$health" | grep -q '"hvac_state_bridge":true'
           echo "$health" | grep -q '"resource_guard":true'
+          echo "$health" | grep -q '"signed_input":true'
+          echo "$health" | grep -q '"native_short_circuit":true'
 
       - name: Stress long AC probe and verify services survive
         shell: bash
@@ -100,7 +102,8 @@ jobs:
           set -euo pipefail
           python3 - <<'PY' >/tmp/long-ac.json
           import json
-          t=[]
+          # Include a leading idle-space to verify signed mark/space handling.
+          t=[-50000]
           for section in range(4):
               t += [3500,-1750]
               for i in range(70):
@@ -115,6 +118,13 @@ jobs:
             curl --max-time 30 -fsS -H 'content-type: application/json' \
               --data-binary @/tmp/long-ac.json http://127.0.0.1:18101/v1/probe-all >/tmp/probe-$i.json
             grep -q '"recognition_coverage":128' /tmp/probe-$i.json
+            python3 - <<'PY' /tmp/probe-$i.json
+            import json, sys
+            p=json.load(open(sys.argv[1]))
+            # Long modern A/C captures should stay on the full press plus at
+            # most three even trims, never fan out into many partial frames.
+            assert int(p.get("variants_tested", 99)) <= 4, p.get("variants_tested")
+            PY
             test "$(docker inspect -f '{{.State.Running}}' hanjoo-ir-test)" = "true"
             curl -fsS http://127.0.0.1:18101/health | grep -q '"ok":true'
             curl -fsS http://127.0.0.1:18102/health | grep -q '"ok":true'
