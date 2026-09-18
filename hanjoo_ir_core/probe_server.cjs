@@ -52,7 +52,16 @@ function normalizeSignedTimings(values) {
   while (out.length && out[0] < 0) out.shift();
   return out;
 }
-function normalizeTimings(values) { return normalizeSignedTimings(values).map(Math.abs); }
+function normalizeTimings(values) {
+  if (!Array.isArray(values)) return [];
+  const out=[];
+  for (const value of values.slice(0, MAX_TIMINGS)) {
+    const n=Math.abs(Number(value));
+    if (!Number.isFinite(n) || n <= 0) continue;
+    out.push(Math.round(n));
+  }
+  return out;
+}
 function variantKey(values) { return values.join(","); }
 
 function snapNecFrame(values) {
