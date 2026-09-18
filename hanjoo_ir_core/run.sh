@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-VERSION="0.6.16"
+VERSION="0.6.17"
 export HANJOO_VERSION="$VERSION"
 SOURCE="/opt/hanjoo/integration/hanjoo_ir"
 OPTIONS="/data/options.json"
