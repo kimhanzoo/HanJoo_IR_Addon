@@ -85,7 +85,11 @@ function buildTimingVariants(values) {
   const starts = [0], ends = [];
   for (const gap of gaps) {
     if (gap - starts[starts.length - 1] >= MIN_VARIANT_TIMINGS) {
-      ends.push(gap);
+      // Keep the delimiter space as the footer gap of the preceding
+      // frame. NEC and many consumer decoders validate that trailing gap; the
+      // old split excluded it, so repeated TV bursts could fail both frame
+      // variants even though the raw capture was valid.
+      ends.push(gap + 1);
       starts.push(gap + 1);
     }
   }
