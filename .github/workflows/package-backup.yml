@@ -1,0 +1,114 @@
+name: Package HanJoo IR backup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/package-backup.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Add-on repository with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: addon
+
+      - name: Checkout Manager repository with full history
+        uses: actions/checkout@v4
+        with:
+          repository: kimhanzoo/hanjoo-ir-manager
+          fetch-depth: 0
+          path: manager
+
+      - name: Build complete backup package
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -n 's/^version:[[:space:]]*"\([^"]*\)".*/\1/p' addon/hanjoo_ir_core/config.yaml | head -n1)"
+          test -n "$VERSION"
+          ROOT="HanJoo_IR_Full_Backup_${VERSION}"
+          mkdir -p "dist/$ROOT/source" "dist/$ROOT/packages" "dist/$ROOT/git-bundles"
+
+          ADDON_SHA="$(git -C addon rev-parse HEAD)"
+          MANAGER_SHA="$(git -C manager rev-parse HEAD)"
+
+          rsync -a --exclude='.git' addon/ "dist/$ROOT/source/HanJoo_IR_Addon/"
+          rsync -a --exclude='.git' manager/ "dist/$ROOT/source/hanjoo-ir-manager/"
+
+          (cd "dist/$ROOT/source" && zip -qr "../packages/HanJoo_IR_Addon-${VERSION}-source.zip" HanJoo_IR_Addon)
+          (cd "dist/$ROOT/source" && zip -qr "../packages/hanjoo-ir-manager-${VERSION}-source.zip" hanjoo-ir-manager)
+
+          mkdir -p "dist/$ROOT/_stage_addon" "dist/$ROOT/_stage_integration/custom_components"
+          rsync -a addon/hanjoo_ir_core/ "dist/$ROOT/_stage_addon/hanjoo_ir_core/"
+          rsync -a manager/custom_components/hanjoo_ir/ "dist/$ROOT/_stage_integration/custom_components/hanjoo_ir/"
+          (cd "dist/$ROOT/_stage_addon" && zip -qr "../packages/HanJoo_IR_Core_Addon-${VERSION}.zip" hanjoo_ir_core)
+          (cd "dist/$ROOT/_stage_integration" && zip -qr "../packages/HanJoo_IR_Manager_Integration-${VERSION}.zip" custom_components)
+          rm -rf "dist/$ROOT/_stage_addon" "dist/$ROOT/_stage_integration"
+
+          git -C addon bundle create "../dist/$ROOT/git-bundles/HanJoo_IR_Addon-full-history.bundle" --all
+          git -C manager bundle create "../dist/$ROOT/git-bundles/hanjoo-ir-manager-full-history.bundle" --all
+
+          cat > "dist/$ROOT/BACKUP_README.md" <<EOF
+          # HanJoo IR complete backup ${VERSION}
+
+          This archive is a complete preservation package for the current HanJoo IR release.
+
+          ## Included
+          - source/HanJoo_IR_Addon/ — complete Add-on repository snapshot (without .git)
+          - source/hanjoo-ir-manager/ — complete Manager repository snapshot (without .git)
+          - packages/HanJoo_IR_Addon-${VERSION}-source.zip — source archive ready to upload/extract
+          - packages/hanjoo-ir-manager-${VERSION}-source.zip — Manager source archive
+          - packages/HanJoo_IR_Core_Addon-${VERSION}.zip — Home Assistant Add-on folder package
+          - packages/HanJoo_IR_Manager_Integration-${VERSION}.zip — custom_components/hanjoo_ir package
+          - git-bundles/*.bundle — full Git history for exact repository restoration
+          - SHA256SUMS — integrity hashes
+          - release_manifest.txt — version and commit identifiers
+
+          ## Restore full Git repository
+          Example:
+              git clone git-bundles/HanJoo_IR_Addon-full-history.bundle HanJoo_IR_Addon
+              git clone git-bundles/hanjoo-ir-manager-full-history.bundle hanjoo-ir-manager
+
+          Then set a new remote and push:
+              git remote set-url origin https://github.com/OWNER/REPO.git
+              git push --all origin
+              git push --tags origin
+
+          ## Version
+          ${VERSION}
+          EOF
+
+          cat > "dist/$ROOT/release_manifest.txt" <<EOF
+          version=${VERSION}
+          addon_repository=kimhanzoo/HanJoo_IR_Addon
+          addon_commit=${ADDON_SHA}
+          manager_repository=kimhanzoo/hanjoo-ir-manager
+          manager_commit=${MANAGER_SHA}
+          workflow_run=${GITHUB_RUN_ID}
+          EOF
+
+          (
+            cd "dist/$ROOT"
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          )
+
+          (cd dist && zip -qr "HanJoo_IR_Full_Backup_${VERSION}.zip" "$ROOT")
+          sha256sum "dist/HanJoo_IR_Full_Backup_${VERSION}.zip" > "dist/HanJoo_IR_Full_Backup_${VERSION}.zip.sha256"
+
+      - name: Upload complete backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: HanJoo_IR_Full_Backup
+          path: |
+            dist/HanJoo_IR_Full_Backup_*.zip
+            dist/HanJoo_IR_Full_Backup_*.zip.sha256
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
