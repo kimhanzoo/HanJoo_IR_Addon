@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import voluptuous as vol
 from pathlib import Path
 
 from homeassistant.components import frontend, panel_custom
@@ -10,6 +11,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import service
 
 from .const import (
     DOMAIN,
@@ -37,6 +39,14 @@ PLATFORMS = [
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
+    service.async_register_platform_entity_service(
+        hass, DOMAIN, "set_timer", entity_domain="climate",
+        schema={
+            vol.Required("minutes"): vol.All(vol.Coerce(float), vol.Range(min=0, max=10080)),
+            vol.Optional("action", default="off"): vol.In(["on", "off"]),
+        },
+        func="async_set_timer",
+    )
     # One-install add-on bootstrap: the add-on adds a harmless `hanjoo_ir:`
     # YAML key. On the next HA restart we create the single config entry
     # automatically, so the user does not need HACS + a second setup flow.
@@ -123,6 +133,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+
+    # IMPORTANT: do not remove the sidebar panel during a config-entry reload.
+    # Entity-topology reloads are normal after adding/deleting a device; removing
+    # the route even briefly makes Home Assistant redirect the user to Overview.
+    # The panel is removed only when the config entry itself is deleted.
     return True
 
 
