@@ -26,7 +26,8 @@ jobs:
           test "$cfg_ver" = "$docker_ver"
           test "$cfg_ver" = "$manifest_ver"
           test "$cfg_ver" = "$const_ver"
-          echo "Validated HanJoo version $cfg_ver"
+          grep -Fqx "## $cfg_ver" hanjoo_ir_core/CHANGELOG.md
+          echo "Validated HanJoo version $cfg_ver and changelog"
 
       - name: Syntax check shell, JavaScript and Manager Python
         shell: bash
@@ -36,13 +37,16 @@ jobs:
           node --check hanjoo_ir_core/probe_server.cjs
           node --check hanjoo_ir_core/core_runtime.protected.cjs
           node --check hanjoo_ir_core/integration/hanjoo_ir/frontend/hanjoo-ir-panel-v065.js
+          node --check hanjoo_ir_core/integration/hanjoo_ir/frontend/hanjoo-ir-panel.js
           python3 -m compileall -q hanjoo_ir_core/integration/hanjoo_ir
 
-      - name: Climate regression checks
+      - name: Climate, learning and JSON regression checks
         run: |
           python3 tests/test_climate_regressions.py
           python3 tests/test_learning_regressions.py
           node tests/test_learning_panel.js
+          python3 tests/test_json_regressions.py
+          node tests/test_json_panel.js
 
       - name: Build add-on image
         shell: bash

@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
-VERSION="0.6.27"
+VERSION="0.6.28"
 export HANJOO_VERSION="$VERSION"
+echo "[HanJoo IR] v$VERSION: JSON editor, transactional import/update, refreshed buttons and capabilities. See the add-on changelog for details."
 SOURCE="/opt/hanjoo/integration/hanjoo_ir"
 OPTIONS="/data/options.json"
 
