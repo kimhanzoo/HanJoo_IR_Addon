@@ -39,7 +39,10 @@ jobs:
           python3 -m compileall -q hanjoo_ir_core/integration/hanjoo_ir
 
       - name: Climate regression checks
-        run: python3 tests/test_climate_regressions.py
+        run: |
+          python3 tests/test_climate_regressions.py
+          python3 tests/test_learning_regressions.py
+          node tests/test_learning_panel.js
 
       - name: Build add-on image
         shell: bash
